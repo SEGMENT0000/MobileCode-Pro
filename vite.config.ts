@@ -13,8 +13,9 @@ export default defineConfig(async () => {
       },
     },
     server: {
-      port: 3000,
-      host: true,
+      port: 5000,
+      host: "0.0.0.0",
+      allowedHosts: true,
     },
     build: {
       outDir: path.resolve(__dirname, "dist"),
