@@ -1,1036 +1,1199 @@
 import { useState, useEffect, useRef } from "react";
 import Editor, { useMonaco } from "@monaco-editor/react";
 import {
-  ArrowLeft, Files, Search, GitBranch, Settings, Play, ChevronRight, ChevronDown,
-  FileCode, Folder, FolderOpen, X, Monitor, Smartphone, Tablet, RefreshCw,
-  Terminal, AlertTriangle, Check, Circle, Plus, Eye, EyeOff, ZoomIn, ZoomOut,
-  WrapText, Save, Download, Upload, Copy, Maximize2, Minimize2, SplitSquareVertical,
-  SplitSquareHorizontal, Pin, RotateCcw, Menu, Code2, FileText, FilePlus, Bug,
-  Package, Moon, Sun, Palette, Type, Command, Cpu, Database, Globe, Mail
+  Files, Search, Settings, ChevronRight, FileCode, X,
+  Menu, MoreHorizontal, Play, Laptop, Smartphone, Tablet,
+  Terminal as TerminalIcon, Download, Trash2, Edit2, Plus,
+  Monitor, RefreshCw, Command, CornerDownLeft, SearchCode,
+  ArrowRight, FolderOpen, PanelBottomClose, PanelBottomOpen,
+  Maximize2, FolderPlus, ToggleLeft, ToggleRight
 } from "lucide-react";
-import { Link } from "wouter";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from "@/components/ui/resizable";
+import {
+  Menubar,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarTrigger,
+} from "@/components/ui/menubar";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { CodeRunner } from "@/lib/code-runner";
+import { Input } from "@/components/ui/input";
+import { Link } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
+// --- CUSTOM ICONS (VS Code Style) ---
+const HtmlIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 32 32" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4.686 28.5L2.357 2.357h27.286L27.314 28.5 16 31.643 4.686 28.5z" fill="#E34F26" />
+    <path d="M16 29.357l9.464-2.614 1.893-21.243H16v23.857z" fill="#EF652A" />
+    <path d="M16 13.214H10.5l.357 3.964H16v3.75l-4.75-1.286-.321-3.536H7.107l.536 6.25L16 24.643v-3.75l.036-.01V13.213zM16 9.393H7.036L6.643 5.357H16v4.036z" fill="#fff" />
+  </svg>
+);
+
+const CssIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 32 32" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4.686 28.5L2.357 2.357h27.286L27.314 28.5 16 31.643 4.686 28.5z" fill="#1572B6" />
+    <path d="M16 29.357l9.464-2.614 1.893-21.243H16v23.857z" fill="#33A9DC" />
+    <path d="M16 13.929h4.964l-.536 5.821L16 20.893V24.6l4.75-1.321.25-2.607.571-6.75H16v-4.571h10.464l.143-1.607H16v6.179zM16 9.357h-5.964l-.321-3.643H16V9.356zM10.929 17.571L10.5 13.071H16v4.5H10.929z" fill="#fff" />
+  </svg>
+);
+
+const JsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 32 32" className={className} xmlns="http://www.w3.org/2000/svg">
+    <path fill="#F7DF1E" d="M0 0h32v32H0V0z" />
+    <path d="M22.034 24.368c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067zM13.051 17.123h-2.248c0 1.938-.009 3.864-.009 5.805 0 1.232.063 2.363-.138 2.711-.33.689-1.18.601-1.566.48-.396-.196-.597-.466-.83-.855-.063-.105-.11-.196-.127-.196l-1.825 1.125c.305.63.75 1.172 1.324 1.517.855.51 2.004.675 3.207.405.783-.226 1.458-.691 1.811-1.411.51-.93.402-2.07.397-3.346.012-2.054 0-4.109 0-6.179l.004-.056z" fill="#000" />
+  </svg>
+);
+
+// --- TYPES ---
 interface FileTab {
   id: string;
   name: string;
   language: 'html' | 'css' | 'javascript';
   content: string;
   modified: boolean;
-  isPinned: boolean;
+  isOpen: boolean;
 }
 
-type ActivePanel = 'explorer' | 'search' | 'git' | 'debug' | 'extensions' | 'settings' | null;
-type Theme = 'dark' | 'light' | 'high-contrast';
+// --- UTILS ---
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const CTRL_KEY = isMac ? '⌘' : 'Ctrl';
+
+const DEFAULT_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>iOS 17</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="device">
+        <div class="status-bar">
+            <span class="time" id="status-time">9:41</span>
+            <div class="dynamic-island"><i class="fa-solid fa-lock" id="lock-icon"></i></div>
+            <div class="status-right">
+                <i class="fa-solid fa-signal"></i>
+                <i class="fa-solid fa-wifi"></i>
+                <i class="fa-solid fa-battery-full"></i>
+            </div>
+        </div>
+
+        <div id="lock-screen" class="screen active">
+            <div class="lock-content">
+                <h1 class="clock-large" id="lock-time">9:41</h1>
+                <p class="date-large" id="lock-date">Tuesday, September 10</p>
+                <p class="swipe-hint">Swipe up to unlock</p>
+            </div>
+            <div class="lock-actions">
+                <div class="action-btn" onclick="toggleFlash()"><i class="fa-solid fa-bolt"></i></div>
+                <div class="action-btn" onclick="openCamera()"><i class="fa-solid fa-camera"></i></div>
+            </div>
+            <div class="home-bar" id="swipe-bar"></div>
+        </div>
+
+        <div id="home-screen" class="screen">
+            <div class="app-grid">
+                <div class="app-item" onclick="openApp('messages')"><div class="app-icon" style="background:linear-gradient(180deg,#65D66A,#2DC84D)"><i class="fa-solid fa-message"></i></div><span>Messages</span></div>
+                <div class="app-item" onclick="openApp('camera')"><div class="app-icon" style="background:linear-gradient(180deg,#6E6E73,#3A3A3C)"><i class="fa-solid fa-camera"></i></div><span>Camera</span></div>
+                <div class="app-item" onclick="openApp('photos')"><div class="app-icon" style="background:linear-gradient(180deg,#fff,#f0f0f0);color:#333"><i class="fa-solid fa-image"></i></div><span>Photos</span></div>
+                <div class="app-item" onclick="openApp('maps')"><div class="app-icon" style="background:linear-gradient(180deg,#63DA6A,#4CD964)"><i class="fa-solid fa-location-dot"></i></div><span>Maps</span></div>
+                <div class="app-item" onclick="openApp('weather')"><div class="app-icon" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)"><i class="fa-solid fa-cloud-sun"></i></div><span>Weather</span></div>
+                <div class="app-item" onclick="openApp('clock')"><div class="app-icon" style="background:#000"><i class="fa-solid fa-clock"></i></div><span>Clock</span></div>
+                <div class="app-item" onclick="openApp('calculator')"><div class="app-icon" style="background:#000"><i class="fa-solid fa-calculator"></i></div><span>Calculator</span></div>
+                <div class="app-item" onclick="openApp('notes')"><div class="app-icon" style="background:linear-gradient(180deg,#FFCC00,#FF9500)"><i class="fa-solid fa-note-sticky"></i></div><span>Notes</span></div>
+                <div class="app-item" onclick="openApp('reminders')"><div class="app-icon" style="background:#fff;color:#000"><i class="fa-solid fa-list-check"></i></div><span>Reminders</span></div>
+                <div class="app-item" onclick="openApp('facetime')"><div class="app-icon" style="background:linear-gradient(180deg,#32D74B,#30D158)"><i class="fa-solid fa-video"></i></div><span>FaceTime</span></div>
+                <div class="app-item" onclick="openApp('mail')"><div class="app-icon" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)"><i class="fa-solid fa-envelope"></i></div><span>Mail</span></div>
+                <div class="app-item" onclick="openApp('settings')"><div class="app-icon" style="background:linear-gradient(180deg,#8E8E93,#636366)"><i class="fa-solid fa-gear"></i></div><span>Settings</span></div>
+            </div>
+            <div class="dock-container">
+               <div class="dock">
+                  <div class="app-item" onclick="openApp('phone')"><div class="app-icon" style="background:linear-gradient(180deg,#65D66A,#2DC84D)"><i class="fa-solid fa-phone"></i></div></div>
+                  <div class="app-item" onclick="openApp('safari')"><div class="app-icon" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)"><i class="fa-solid fa-compass"></i></div></div>
+                  <div class="app-item" onclick="openApp('messages')"><div class="app-icon" style="background:linear-gradient(180deg,#65D66A,#2DC84D)"><i class="fa-solid fa-message"></i></div></div>
+                  <div class="app-item" onclick="openApp('music')"><div class="app-icon" style="background:linear-gradient(180deg,#FC3C44,#FB2C36)"><i class="fa-solid fa-music"></i></div></div>
+               </div>
+            </div>
+            <div class="home-bar dark"></div>
+        </div>
+
+        <div id="app-view" class="screen">
+           <div id="app-content-container"></div>
+           <div class="home-bar dark"></div>
+        </div>
+        
+        <div id="camera-view" class="screen">
+           <video id="camera-feed" autoplay playsinline></video>
+           <div class="camera-controls">
+               <div class="cam-btn" onclick="goHome()"><i class="fa-solid fa-images"></i></div>
+               <div class="shutter-btn" onclick="takePhoto()"></div>
+               <div class="cam-btn" onclick="switchCamera()"><i class="fa-solid fa-rotate"></i></div>
+           </div>
+           <div class="home-bar"></div>
+        </div>
+    </div>
+</body>
+</html>`;
+
+const DEFAULT_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    background: #000;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+    color: white;
+    overflow: hidden;
+}
+
+.device {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: url('https://cdn.beebom.com/content/2025/09/iPhone-17-Pro-Wallpapers-Orange-Dark.jpg') center/cover no-repeat;
+    overflow: hidden;
+}
+
+.status-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 54px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 28px;
+    z-index: 100;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.dynamic-island {
+    width: 126px;
+    height: 37px;
+    background: #000;
+    border-radius: 50px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    box-shadow: 0 0 0 4px rgba(0,0,0,0.3);
+}
+
+.status-right { display: flex; gap: 6px; font-size: 15px; }
+
+/* Screens */
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.4s;
+    transform: scale(0.96);
+}
+
+.screen.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1);
+}
+
+/* Lock Screen */
+#lock-screen {
+    justify-content: flex-start;
+    padding-top: 120px;
+    align-items: center;
+    background: rgba(0,0,0,0.1);
+}
+
+.lock-content {
+    text-align: center;
+}
+
+.clock-large {
+    font-size: 86px;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1;
+    text-shadow: 0 4px 30px rgba(0,0,0,0.3);
+    font-feature-settings: "tnum";
+}
+
+.date-large {
+    font-size: 22px;
+    font-weight: 500;
+    margin-top: 6px;
+    opacity: 0.9;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.lock-actions {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 40px;
+    pointer-events: auto;
+}
+
+.action-btn {
+    width: 50px;
+    height: 50px;
+    background: rgba(40,40,40,0.7);
+    backdrop-filter: blur(20px);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.2s;
+}
+.action-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.25); }
+
+/* Home Screen */
+#home-screen {
+    padding: 70px 20px 100px;
+    justify-content: flex-start;
+    background: rgba(0,0,0,0.25);
+    backdrop-filter: blur(15px);
+}
+
+.widgets-area {
+    margin-bottom: 20px;
+}
+
+.widget {
+    background: rgba(255,255,255,0.92);
+    border-radius: 22px;
+    padding: 14px 16px;
+    color: black;
+    width: 160px;
+    height: 160px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.cal-header { color: #ff3b30; font-weight: 600; text-transform: uppercase; font-size: 13px; }
+.cal-number { font-size: 48px; font-weight: 300; margin: 4px 0; }
+.cal-events { font-size: 13px; color: #666; font-weight: 500; margin-top: 8px; }
+
+.app-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px 12px;
+}
+
+.app-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.app-item:active { transform: scale(0.9); }
+
+.app-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    background: #333;
+    color: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.app-item span { font-size: 11px; font-weight: 500; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+
+.green { background: linear-gradient(135deg, #34c759, #30d158); }
+.maps-color { background: linear-gradient(135deg, #5ac8fa, #34aadc); }
+.photos-color { background: linear-gradient(135deg, #fff, #f0f0f0); color: #333; }
+.weather-color { background: linear-gradient(180deg, #47bfff, #007aff); }
+.clock-color { background: #000; border: 1px solid #333; }
+.mail-color { background: linear-gradient(135deg, #5ac8fa, #007aff); }
+.music-color { background: linear-gradient(135deg, #fc5c7d, #fc3d39); }
+.grey { background: linear-gradient(135deg, #8e8e93, #636366); }
+.safari-color { background: linear-gradient(135deg, #5ac8fa, #007aff); }
+.spotify-color { background: linear-gradient(135deg, #1ed760, #1db954); }
+
+.dock-container {
+    position: absolute;
+    bottom: 30px;
+    left: 0;
+    width: 100%;
+    padding: 0 12px;
+}
+
+.dock {
+    width: 100%;
+    height: 90px;
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(40px);
+    border-radius: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 0 14px;
+}
+
+.home-bar {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 134px;
+    height: 5px;
+    background: white;
+    border-radius: 10px;
+    z-index: 200;
+}
+.home-bar.dark { background: rgba(255,255,255,0.5); bottom: 10px; }
+
+#gesture-area {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 34px;
+    z-index: 999;
+    cursor: pointer;
+}
+
+/* App View */
+#app-view {
+    background: #f2f2f7;
+    color: black;
+    z-index: 50;
+}
+
+#app-content-container { flex: 1; overflow-y: auto; background: #f2f2f7; }
+
+/* App Styles */
+.messages-app { padding: 20px; background: white; height: 100%; }
+.msg-header { display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; }
+.msg-avatar { width: 60px; height: 60px; background: #007aff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; margin-bottom: 8px; font-size: 24px; font-weight: 600; }
+.bubble { max-width: 75%; padding: 12px 16px; border-radius: 18px; margin-bottom: 8px; font-size: 16px; line-height: 1.35; }
+.bubble.left { background: #e5e5ea; color: black; align-self: flex-start; border-bottom-left-radius: 4px; }
+.bubble.right { background: #007aff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; margin-left: auto; }
+
+.phone-recents { background: white; height: 100%; }
+.recent-row { display: flex; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #f0f0f0; }
+.r-name { font-weight: 600; font-size: 17px; }
+.r-type { font-size: 14px; color: #8e8e93; margin-top: 2px; }
+.r-time { color: #8e8e93; font-size: 15px; }
+.name-highlight { color: #ff3b30; }
+
+.weather-card {
+    background: linear-gradient(180deg, #47bfff 0%, #007aff 100%);
+    height: 100%; color: white; padding: 40px 20px;
+    text-align: center;
+}
+.weather-temp { font-size: 96px; font-weight: 200; }
+.weather-city { font-size: 34px; font-weight: 500; }
+
+.settings-list { background: white; }
+.settings-item { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid #f0f0f0; }
+.settings-icon { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; }
+.settings-label { font-size: 17px; }
+
+.swipe-hint { font-size: 14px; opacity: 0.6; margin-top: 40px; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:0.8} }
+
+#camera-view { background: #000; }
+#camera-feed { width: 100%; height: 100%; object-fit: cover; }
+.camera-controls { position: absolute; bottom: 40px; left: 0; width: 100%; display: flex; justify-content: space-around; align-items: center; padding: 0 40px; }
+.shutter-btn { width: 70px; height: 70px; background: white; border-radius: 50%; border: 4px solid rgba(255,255,255,0.3); cursor: pointer; }
+.shutter-btn:active { transform: scale(0.9); }
+.cam-btn { width: 44px; height: 44px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: white; cursor: pointer; }
+
+.calc-display { background: #000; color: white; text-align: right; padding: 20px; font-size: 60px; font-weight: 300; }
+.calc-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; padding: 12px; background: #000; }
+.calc-btn { height: 70px; border-radius: 35px; display: flex; align-items: center; justify-content: center; font-size: 28px; cursor: pointer; }
+.calc-btn.num { background: #333; color: white; }
+.calc-btn.op { background: #ff9f0a; color: white; }
+.calc-btn.fn { background: #a5a5a5; color: black; }
+`;
+
+const DEFAULT_JS = `// State
+let currentScreen = 'lock-screen';
+let cameraStream = null;
+let facingMode = 'environment';
+const screens = { lock: document.getElementById('lock-screen'), home: document.getElementById('home-screen'), app: document.getElementById('app-view'), camera: document.getElementById('camera-view') };
+
+// Update time
+function updateTime() {
+    const now = new Date();
+    const h = now.getHours().toString().padStart(2,'0');
+    const m = now.getMinutes().toString().padStart(2,'0');
+    document.getElementById('lock-time').textContent = h + ':' + m;
+    document.getElementById('status-time').textContent = h + ':' + m;
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    document.getElementById('lock-date').textContent = days[now.getDay()] + ', ' + months[now.getMonth()] + ' ' + now.getDate();
+}
+updateTime(); setInterval(updateTime, 1000);
+
+// Swipe gesture (touch)
+let startY = 0;
+document.addEventListener('touchstart', e => startY = e.touches[0].clientY, {passive:true});
+document.addEventListener('touchend', e => {
+    if(startY - e.changedTouches[0].clientY > 60) handleSwipeUp();
+}, {passive:true});
+
+// Mouse gesture for desktop
+let mouseDown = false, mouseStartY = 0;
+document.addEventListener('mousedown', e => { mouseDown = true; mouseStartY = e.clientY; });
+document.addEventListener('mouseup', e => { if(mouseDown && mouseStartY - e.clientY > 60) handleSwipeUp(); mouseDown = false; });
+
+function handleSwipeUp() {
+    if(currentScreen === 'lock-screen') unlockPhone();
+    else if(currentScreen !== 'home-screen') goHome();
+}
+
+document.querySelectorAll('.home-bar').forEach(bar => bar.addEventListener('click', handleSwipeUp));
+
+function unlockPhone() {
+    document.getElementById('lock-icon').style.display = 'none';
+    screens.lock.classList.remove('active');
+    setTimeout(() => screens.home.classList.add('active'), 50);
+    currentScreen = 'home-screen';
+}
+
+window.goHome = function() {
+    if(cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+    Object.values(screens).forEach(s => s?.classList.remove('active'));
+    setTimeout(() => screens.home.classList.add('active'), 50);
+    currentScreen = 'home-screen';
+};
+
+window.openApp = (name) => {
+    if(name === 'camera') { openCamera(); return; }
+    screens.home.classList.remove('active');
+    setTimeout(() => { screens.app.classList.add('active'); renderApp(name); }, 50);
+    currentScreen = 'app-screen';
+};
+
+window.openCamera = async function() {
+    screens.lock.classList.remove('active');
+    screens.home.classList.remove('active');
+    try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+        document.getElementById('camera-feed').srcObject = cameraStream;
+        screens.camera.classList.add('active');
+        currentScreen = 'camera-screen';
+    } catch(e) { alert('Camera access denied'); goHome(); }
+};
+
+window.switchCamera = async function() {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    if(cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); }
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+    document.getElementById('camera-feed').srcObject = cameraStream;
+};
+
+window.takePhoto = function() {
+    const video = document.getElementById('camera-feed');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const flash = document.createElement('div');
+    flash.style.cssText = 'position:fixed;inset:0;background:white;z-index:9999;animation:flash 0.3s forwards';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 300);
+};
+
+window.toggleFlash = function() { alert('Flashlight toggled'); };
+
+let calcDisplay = '0';
+window.calcInput = function(val) {
+    if(calcDisplay === '0' && val !== '.') calcDisplay = val;
+    else calcDisplay += val;
+    document.getElementById('calc-display').textContent = calcDisplay;
+};
+window.calcOp = function(op) { calcDisplay += ' ' + op + ' '; document.getElementById('calc-display').textContent = calcDisplay; };
+window.calcClear = function() { calcDisplay = '0'; document.getElementById('calc-display').textContent = '0'; };
+window.calcEquals = function() {
+    try { calcDisplay = eval(calcDisplay.replace(/×/g,'*').replace(/÷/g,'/')).toString(); }
+    catch(e) { calcDisplay = 'Error'; }
+    document.getElementById('calc-display').textContent = calcDisplay;
+};
+
+function renderApp(name) {
+    const c = document.getElementById('app-content-container');
+    if(name === 'messages') { c.innerHTML = '<div class="messages-app" style="display:flex;flex-direction:column"><div class="msg-header"><div class="msg-avatar">O</div><div style="font-weight:600">Olivia</div><div style="font-size:12px;color:#888">iMessage</div></div><div class="bubble left">Hey! Are we still on for dinner?</div><div class="bubble right">Yes! 7 PM at the Italian place 🍝</div><div class="bubble left">Perfect! See you there! 😊</div></div>'; }
+    else if(name === 'calculator') { c.innerHTML = '<div style="height:100%;display:flex;flex-direction:column;background:#000"><div id="calc-display" class="calc-display">0</div><div class="calc-grid"><div class="calc-btn fn" onclick="calcClear()">AC</div><div class="calc-btn fn">±</div><div class="calc-btn fn">%</div><div class="calc-btn op" onclick="calcOp(\\\'÷\\\')">÷</div><div class="calc-btn num" onclick="calcInput(\\\'7\\\')">7</div><div class="calc-btn num" onclick="calcInput(\\\'8\\\')">8</div><div class="calc-btn num" onclick="calcInput(\\\'9\\\')">9</div><div class="calc-btn op" onclick="calcOp(\\\'×\\\')">×</div><div class="calc-btn num" onclick="calcInput(\\\'4\\\')">4</div><div class="calc-btn num" onclick="calcInput(\\\'5\\\')">5</div><div class="calc-btn num" onclick="calcInput(\\\'6\\\')">6</div><div class="calc-btn op" onclick="calcOp(\\\'-\\\')">−</div><div class="calc-btn num" onclick="calcInput(\\\'1\\\')">1</div><div class="calc-btn num" onclick="calcInput(\\\'2\\\')">2</div><div class="calc-btn num" onclick="calcInput(\\\'3\\\')">3</div><div class="calc-btn op" onclick="calcOp(\\\'+\\\')">+</div><div class="calc-btn num" style="grid-column:span 2" onclick="calcInput(\\\'0\\\')">0</div><div class="calc-btn num" onclick="calcInput(\\\'.\\\')">.</div><div class="calc-btn op" onclick="calcEquals()">=</div></div></div>'; }
+    else if(name === 'maps') { c.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=77.1,28.5,77.3,28.7&layer=mapnik" style="width:100%;height:100%;border:none"></iframe>'; }
+    else if(name === 'weather') { c.innerHTML = '<div class="weather-card"><div class="weather-city">Delhi, India</div><div class="weather-temp">28°</div><div style="font-size:22px;opacity:0.9">Hazy</div><div style="margin-top:24px;font-size:17px">H: 32° L: 18°</div></div>'; }
+    else if(name === 'clock') { const now = new Date(); c.innerHTML = '<div style="height:100%;background:#000;color:white;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:14px;color:#ff9500;font-weight:600;margin-bottom:10px">WORLD CLOCK</div><div style="font-size:72px;font-weight:200">' + now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + '</div><div style="font-size:16px;color:#8e8e93;margin-top:10px">Delhi, India</div></div>'; }
+    else if(name === 'notes') { c.innerHTML = '<div style="background:#f2f2f7;height:100%;padding:20px"><div style="font-size:32px;font-weight:700;margin-bottom:20px">Notes</div><div style="background:white;border-radius:12px;padding:16px;min-height:200px" contenteditable="true" style="outline:none">Tap here to start typing...</div></div>'; }
+    else if(name === 'reminders') { c.innerHTML = '<div style="background:#f2f2f7;height:100%;padding:20px"><div style="font-size:32px;font-weight:700;margin-bottom:20px">Reminders</div><div style="background:white;border-radius:12px"><div style="padding:14px 16px;border-bottom:1px solid #f0f0f0;display:flex;gap:12px;align-items:center"><div style="width:22px;height:22px;border:2px solid #007aff;border-radius:50%"></div>Buy groceries</div><div style="padding:14px 16px;border-bottom:1px solid #f0f0f0;display:flex;gap:12px;align-items:center"><div style="width:22px;height:22px;border:2px solid #007aff;border-radius:50%"></div>Call dentist</div><div style="padding:14px 16px;display:flex;gap:12px;align-items:center"><div style="width:22px;height:22px;background:#007aff;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:14px">✓</div><span style="text-decoration:line-through;color:#8e8e93">Finish project</span></div></div></div>'; }
+    else if(name === 'facetime') { c.innerHTML = '<div style="height:100%;background:#1c1c1e;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white"><i class="fa-solid fa-video" style="font-size:60px;color:#32D74B;margin-bottom:20px"></i><div style="font-size:24px;font-weight:600">FaceTime</div><div style="font-size:14px;color:#8e8e93;margin-top:8px">No recent calls</div></div>'; }
+    else if(name === 'phone') { c.innerHTML = '<div class="phone-recents"><div style="padding:16px 20px;font-size:32px;font-weight:700">Recents</div><div class="recent-row"><div><div class="r-name name-highlight">Mom</div><div class="r-type">mobile • Missed</div></div><div class="r-time">Yesterday</div></div><div class="recent-row"><div><div class="r-name">Jason</div><div class="r-type">home</div></div><div class="r-time">11:15 AM</div></div></div>'; }
+    else if(name === 'mail') { c.innerHTML = '<div style="background:#f2f2f7;height:100%"><div style="padding:16px 20px;font-size:32px;font-weight:700;background:white">Inbox</div><div style="background:white;margin-top:20px"><div style="padding:14px 20px;border-bottom:1px solid #f0f0f0"><div style="font-weight:600">Apple</div><div style="color:#8e8e93;font-size:14px">Your receipt from Apple...</div></div><div style="padding:14px 20px"><div style="font-weight:600">GitHub</div><div style="color:#8e8e93;font-size:14px">[GitHub] New security alert...</div></div></div></div>'; }
+    else if(name === 'music') { c.innerHTML = '<div style="background:#000;height:100%;color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px"><div style="width:200px;height:200px;background:linear-gradient(135deg,#fc5c7d,#6a82fb);border-radius:12px;margin-bottom:30px"></div><div style="text-align:center"><h2 style="margin:0;font-size:22px">Blinding Lights</h2><p style="color:#aaa;margin:6px 0 0 0;font-size:16px">The Weeknd</p></div><div style="display:flex;justify-content:center;gap:40px;width:100%;padding:40px 20px;align-items:center"><i class="fa-solid fa-backward-step" style="font-size:28px;opacity:0.7"></i><div style="width:60px;height:60px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-play" style="font-size:24px;color:black;margin-left:4px"></i></div><i class="fa-solid fa-forward-step" style="font-size:28px;opacity:0.7"></i></div></div>'; }
+    else if(name === 'settings') { c.innerHTML = '<div class="settings-list"><div style="padding:16px 20px;font-size:32px;font-weight:700">Settings</div><div class="settings-item"><div class="settings-icon" style="background:#007aff"><i class="fa-solid fa-wifi"></i></div><span class="settings-label">Wi-Fi</span></div><div class="settings-item"><div class="settings-icon" style="background:#007aff"><i class="fa-brands fa-bluetooth-b"></i></div><span class="settings-label">Bluetooth</span></div><div class="settings-item"><div class="settings-icon" style="background:#ff9500"><i class="fa-solid fa-bell"></i></div><span class="settings-label">Notifications</span></div><div class="settings-item"><div class="settings-icon" style="background:#34c759"><i class="fa-solid fa-battery-three-quarters"></i></div><span class="settings-label">Battery</span></div></div>'; }
+    else if(name === 'safari') { c.innerHTML = '<div style="height:100%;background:white;display:flex;flex-direction:column"><div style="padding:12px;background:#f8f8f8;border-bottom:1px solid #e5e5e5"><div style="background:#e5e5e5;border-radius:10px;padding:10px 16px;font-size:16px;color:#8e8e93">Search or enter website</div></div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#8e8e93"><i class="fa-solid fa-compass" style="font-size:60px;margin-bottom:16px;color:#007aff"></i><div style="font-size:18px">Welcome to Safari</div></div></div>'; }
+    else if(name === 'photos') { c.innerHTML = '<div style="padding:20px;background:#f2f2f7"><div style="font-size:32px;font-weight:700;margin-bottom:20px">Photos</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px"><div style="aspect-ratio:1;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:4px"></div><div style="aspect-ratio:1;background:linear-gradient(135deg,#f093fb,#f5576c);border-radius:4px"></div><div style="aspect-ratio:1;background:linear-gradient(135deg,#4facfe,#00f2fe);border-radius:4px"></div><div style="aspect-ratio:1;background:linear-gradient(135deg,#43e97b,#38f9d7);border-radius:4px"></div><div style="aspect-ratio:1;background:linear-gradient(135deg,#fa709a,#fee140);border-radius:4px"></div><div style="aspect-ratio:1;background:linear-gradient(135deg,#a18cd1,#fbc2eb);border-radius:4px"></div></div></div>'; }
+    else { c.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#8e8e93;font-size:20px;text-transform:capitalize">' + name + '</div>'; }
+}
+`;
+
 
 export default function EditorPage() {
-  const monacoInstance = useMonaco();
-  const [files, setFiles] = useState<FileTab[]>([
-    {
-      id: 'html-1',
-      name: 'index.html',
-      language: 'html',
-      content: localStorage.getItem('html') || '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>Amazing Web App</title>\n</head>\n<body>\n  <div class="container">\n    <h1>Welcome to the Future</h1>\n    <p>Start building something incredible!</p>\n    <button onclick="handleClick()">Click Me</button>\n  </div>\n</body>\n</html>',
-      modified: false,
-      isPinned: false
-    },
-    {
-      id: 'css-1',
-      name: 'styles.css',
-      language: 'css',
-      content: localStorage.getItem('css') || '* {\n  margin: 0;\n  padding: 0;\n  box-sizing: border-box;\n}\n\nbody {\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\n  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n  min-height: 100vh;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n}\n\n.container {\n  background: white;\n  padding: 3rem;\n  border-radius: 1.5rem;\n  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);\n  text-align: center;\n  animation: fadeIn 0.5s ease;\n}\n\n@keyframes fadeIn {\n  from { opacity: 0; transform: translateY(20px); }\n  to { opacity: 1; transform: translateY(0); }\n}',
-      modified: false,
-      isPinned: false
-    },
-    {
-      id: 'js-1',
-      name: 'script.js',
-      language: 'javascript',
-      content: localStorage.getItem('js') || 'function handleClick() {\n  console.log("Button clicked!");\n  alert("Hello from JavaScript!");\n}\n\nconsole.log("App initialized successfully");',
-      modified: false,
-      isPinned: false
-    }
-  ]);
-
-  const [openTabs, setOpenTabs] = useState<string[]>(['html-1']);
-  const [activeFileId, setActiveFileId] = useState('html-1');
-  const [codePreviewHtml, setCodePreviewHtml] = useState<string | null>(null);
-  const [isCodeRunning, setIsCodeRunning] = useState(false);
-  const [viewportMode, setViewportMode] = useState<"mobile" | "tablet" | "desktop">("desktop");
-  const [consoleLogs, setConsoleLogs] = useState<Array<{ level: string; message: string; timestamp: string }>>([]);
-  const [activePanel, setActivePanel] = useState<ActivePanel>('explorer');
-  const [explorerOpen, setExplorerOpen] = useState(true);
-  const [showTerminal, setShowTerminal] = useState(true);
-  const [showPreview, setShowPreview] = useState(true);
-  const [splitView, setSplitView] = useState(false);
-  const [theme, setTheme] = useState<Theme>('dark');
-  const [showMinimap, setShowMinimap] = useState(true);
-  const [wordWrap, setWordWrap] = useState<'on' | 'off'>('off');
-  const [fontSize, setFontSize] = useState(14);
-  const [showWhitespace, setShowWhitespace] = useState(false);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [showQuickOpen, setShowQuickOpen] = useState(false);
-  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
-  const [commandSearch, setCommandSearch] = useState('');
-  const [quickOpenSearch, setQuickOpenSearch] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [replaceQuery, setReplaceQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ fileId: string, line: number, text: string }>>([]);
-  const [newFileName, setNewFileName] = useState('');
-  const [newFileType, setNewFileType] = useState<'html' | 'css' | 'javascript'>('html');
-  const [terminalInput, setTerminalInput] = useState('');
-  const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
-  const [activeTerminalTab, setActiveTerminalTab] = useState<'console' | 'terminal' | 'problems' | 'output'>('terminal');
-  const [gitBranch, setGitBranch] = useState('main');
-  const [gitChanges, setGitChanges] = useState<number>(0);
-  const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const isMobile = useIsMobile();
-  const editorRefs = useRef<Map<string, any>>(new Map());
+  const monaco = useMonaco();
 
-  const getActiveFile = () => files.find(f => f.id === activeFileId) || files[0];
+  // --- STATE ---
+  const [activeActivity, setActiveActivity] = useState<'explorer' | 'search' | 'settings'>('explorer');
 
+  // Initialize files from localStorage or default
+  const [files, setFiles] = useState<FileTab[]>(() => {
+    try {
+      const saved = localStorage.getItem('mobilecode_files');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Failed to load files", e);
+    }
+    return [
+      { id: '1', name: 'index.html', language: 'html', content: DEFAULT_HTML, modified: false, isOpen: true },
+      { id: '2', name: 'styles.css', language: 'css', content: DEFAULT_CSS, modified: false, isOpen: true },
+      { id: '3', name: 'script.js', language: 'javascript', content: DEFAULT_JS, modified: false, isOpen: true },
+    ];
+  });
+
+  const [activeFileId, setActiveFileId] = useState('1');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewDevice, setPreviewDevice] = useState<'responsive' | 'mobile' | 'tablet'>('mobile');
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [newFileDialogOpen, setNewFileDialogOpen] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [terminalOpen, setTerminalOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ fileId: string, line: number, text: string }[]>([]);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Settings State
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mobilecode_settings');
+      if (saved) return JSON.parse(saved);
+    } catch (e) { }
+    return {
+      fontSize: 14,
+      wordWrap: 'off',
+      minimap: false,
+      formatOnSave: false,
+      theme: 'Dark Modern'
+    };
+  });
+
+  // Persist Settings
+  useEffect(() => {
+    localStorage.setItem('mobilecode_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  // Terminal State
+  const [terminalHistory, setTerminalHistory] = useState(['MobileCode v2.5.0 initialized...', 'Ready to code.']);
+  const [terminalInput, setTerminalInput] = useState('');
+  const [cursorPosition, setCursorPosition] = useState({ ln: 1, col: 1 });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeFile = files.find(f => f.id === activeFileId);
+  const editorRef = useRef<any>(null);
+
+  // --- EFFECTS ---
+
+  // Initialize Monaco Theme
+  useEffect(() => {
+    if (monaco) {
+      monaco.editor.defineTheme('vscode-dark-custom', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: { 'editor.background': '#1e1e1e' }
+      });
+      monaco.editor.setTheme('vscode-dark-custom');
+    }
+  }, [monaco]);
+
+  // Persist files
+  useEffect(() => {
+    localStorage.setItem('mobilecode_files', JSON.stringify(files));
+  }, [files]);
+
+  // Handle Ctrl+S and Ctrl+`
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-        e.preventDefault();
-        setShowQuickOpen(true);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
-        e.preventDefault();
-        setShowCommandPalette(true);
-      }
+      // Save
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         handleSave();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-        e.preventDefault();
-        setShowNewFileDialog(true);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
-        e.preventDefault();
-        setSplitView(!splitView);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        setActivePanel('search');
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-        e.preventDefault();
-        setActivePanel(activePanel === 'explorer' ? null : 'explorer');
-      }
+      // Toggle Terminal
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
         e.preventDefault();
-        setShowTerminal(!showTerminal);
+        setTerminalOpen(prev => !prev);
+      }
+      // New File
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        setNewFileDialogOpen(true);
+      }
+      // Open/Import File (Ctrl+O)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+        e.preventDefault();
+        setUploadDialogOpen(true);
+      }
+      // Close Tab (Ctrl+W)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        e.preventDefault();
+        if (activeFileId) handleCloseTab(activeFileId);
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [splitView, files, activePanel, showTerminal]);
+  }, [files, activeFileId]);
 
+  // Live Preview Logic
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      const html = files.find(f => f.language === 'html')?.content || '';
-      const css = files.find(f => f.language === 'css')?.content || '';
-      const js = files.find(f => f.language === 'javascript')?.content || '';
-      handleRunCode(html, css, js);
-    }, 1000);
-    return () => clearTimeout(timeoutId);
+    if (files.length === 0) {
+      setPreviewUrl('about:blank');
+      return;
+    }
+    const html = files.find(f => f.language === 'html')?.content || '';
+    const css = files.find(f => f.language === 'css')?.content || '';
+    const js = files.find(f => f.language === 'javascript')?.content || '';
+
+    const combinedSource = `
+      <html><head><style>${css}</style></head>
+      <body>${html}<script>try{${js}}catch(e){console.error(e)}<\/script></body>
+      </html>`;
+
+    const blob = new Blob([combinedSource], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
   }, [files]);
 
-  useEffect(() => {
-    files.forEach(f => {
-      localStorage.setItem(f.language, f.content);
-    });
-    setGitChanges(files.filter(f => f.modified).length);
-  }, [files]);
+  // --- ACTIONS ---
 
-  useEffect(() => {
-    if (monacoInstance) {
-      monacoInstance.editor.setTheme(theme === 'dark' ? 'vs-dark' : theme === 'light' ? 'vs' : 'hc-black');
-    }
-  }, [theme, monacoInstance]);
-
-  const handleRunCode = (htmlCode: string, cssCode: string, jsCode: string) => {
-    setIsCodeRunning(true);
-    try {
-      const preview = CodeRunner.generatePreview(htmlCode, cssCode, jsCode);
-      setCodePreviewHtml(preview);
-    } catch (error) {
-      console.error("Error:", error);
-    } finally {
-      setTimeout(() => setIsCodeRunning(false), 200);
-    }
-  };
-
-  const handleEditorMount = (editor: any, fileId: string) => {
-    editorRefs.current.set(fileId, editor);
-    editor.updateOptions({
-      fontSize,
-      minimap: { enabled: showMinimap },
-      lineNumbers: 'on',
-      renderWhitespace: showWhitespace ? 'all' : 'none',
-      wordWrap,
-      rulers: [80, 120],
-      bracketPairColorization: { enabled: true },
-      guides: { indentation: true },
-      autoClosingBrackets: 'always',
-      autoClosingQuotes: 'always',
-      formatOnPaste: true,
-      formatOnType: true,
-      tabSize: 2,
-      folding: true,
-      smoothScrolling: true,
-      cursorBlinking: 'smooth',
-      suggestOnTriggerCharacters: true,
-      quickSuggestions: true,
-      parameterHints: { enabled: true }
-    });
-  };
-
-  const handleFileChange = (fileId: string, value: string | undefined) => {
-    setFiles(prev => prev.map(f =>
-      f.id === fileId ? { ...f, content: value || '', modified: true } : f
-    ));
+  const handleFileChange = (value: string | undefined) => {
+    if (value === undefined) return;
+    setFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, content: value, modified: true } : f));
   };
 
   const handleSave = () => {
     setFiles(prev => prev.map(f => ({ ...f, modified: false })));
+    toast({ title: "Saved", description: "All changes persisted.", className: "bg-[#252526] text-white" });
   };
 
-  const handleFormat = () => {
-    const editor = editorRefs.current.get(activeFileId);
-    if (editor) editor.getAction('editor.action.formatDocument')?.run();
-  };
-
-  const handleNewFile = () => {
-    if (!newFileName) return;
-    const ext = newFileType === 'html' ? '.html' : newFileType === 'css' ? '.css' : '.js';
-    const newFile: FileTab = {
-      id: `${newFileType}-${Date.now()}`,
-      name: newFileName + ext,
-      language: newFileType,
-      content: '',
-      modified: false,
-      isPinned: false
-    };
-    setFiles(prev => [...prev, newFile]);
-    setActiveFileId(newFile.id);
-    setShowNewFileDialog(false);
-    setNewFileName('');
-  };
-
-  const handleCloseTab = (fileId: string) => {
-    setOpenTabs(prev => prev.filter(id => id !== fileId));
-    if (activeFileId === fileId) {
-      const index = openTabs.indexOf(fileId);
-      const nextTab = openTabs[index + 1] || openTabs[index - 1];
-      if (nextTab) setActiveFileId(nextTab);
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (!query) {
+      setSearchResults([]);
+      return;
     }
-  };
-
-  const handleDeleteFile = (fileId: string) => {
-    setFiles(prev => prev.filter(f => f.id !== fileId));
-    setOpenTabs(prev => prev.filter(id => id !== fileId));
-    if (activeFileId === fileId) {
-      const remainingFile = files.find(f => f.id !== fileId);
-      if (remainingFile) {
-        setActiveFileId(remainingFile.id);
-      } else {
-        setActiveFileId('');
-      }
-    }
-  };
-
-  const handleOpenFile = (fileId: string) => {
-    if (!openTabs.includes(fileId)) {
-      setOpenTabs(prev => [...prev, fileId]);
-    }
-    setActiveFileId(fileId);
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFiles = event.target.files;
-    if (!uploadedFiles) return;
-
-    Array.from(uploadedFiles).forEach(uploadedFile => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        const fileName = uploadedFile.name;
-        let language: 'html' | 'css' | 'javascript' = 'html';
-
-        if (fileName.endsWith('.html') || fileName.endsWith('.htm')) language = 'html';
-        else if (fileName.endsWith('.css')) language = 'css';
-        else if (fileName.endsWith('.js')) language = 'javascript';
-        else return; // Skip unsupported files
-
-        const newFile: FileTab = {
-          id: `${language}-${Date.now()}-${Math.random()}`,
-          name: fileName,
-          language,
-          content,
-          modified: false,
-          isPinned: false
-        };
-
-        setFiles(prev => [...prev, newFile]);
-        setOpenTabs(prev => [...prev, newFile.id]);
-        setActiveFileId(newFile.id);
-      };
-      reader.readAsText(uploadedFile);
-    });
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setShowUploadDialog(false);
-  };
-
-  const handlePinFile = (fileId: string) => {
-    setFiles(prev => prev.map(f =>
-      f.id === fileId ? { ...f, isPinned: !f.isPinned } : f
-    ));
-  };
-
-  const handleDownload = () => {
-    const file = getActiveFile();
-    const blob = new Blob([file.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleSearch = () => {
-    const results: Array<{ fileId: string, line: number, text: string }> = [];
-    files.forEach(file => {
-      const lines = file.content.split('\n');
-      lines.forEach((line, index) => {
-        if (line.toLowerCase().includes(searchQuery.toLowerCase())) {
-          results.push({ fileId: file.id, line: index + 1, text: line.trim() });
+    const results: typeof searchResults = [];
+    files.forEach(f => {
+      const lines = f.content.split('\n');
+      lines.forEach((line, idx) => {
+        if (line.toLowerCase().includes(query.toLowerCase())) {
+          results.push({ fileId: f.id, line: idx + 1, text: line.trim() });
         }
       });
     });
     setSearchResults(results);
   };
 
-  const handleReplace = () => {
-    files.forEach(file => {
-      const newContent = file.content.replaceAll(searchQuery, replaceQuery);
-      if (newContent !== file.content) {
-        setFiles(prev => prev.map(f =>
-          f.id === file.id ? { ...f, content: newContent, modified: true } : f
-        ));
+  const handleCloseTab = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const file = files.find(f => f.id === id);
+    if (!file) return;
+
+    // If closing active file, switch to another open one
+    if (activeFileId === id) {
+      const openFiles = files.filter(f => f.isOpen && f.id !== id);
+      if (openFiles.length > 0) {
+        setActiveFileId(openFiles[openFiles.length - 1].id);
+      } else {
+        setActiveFileId('');
       }
-    });
-    handleSearch();
-  };
-
-  const handleTerminalCommand = () => {
-    if (!terminalInput.trim()) return;
-
-    const command = terminalInput.trim();
-    setTerminalHistory(prev => [...prev, `$ ${command}`]);
-
-    // Simulate command execution
-    if (command === 'clear') {
-      setTerminalHistory([]);
-    } else if (command === 'help') {
-      setTerminalHistory(prev => [...prev, 'Available commands: clear, help, ls, pwd, date']);
-    } else if (command === 'ls') {
-      setTerminalHistory(prev => [...prev, files.map(f => f.name).join('  ')]);
-    } else if (command === 'pwd') {
-      setTerminalHistory(prev => [...prev, '/workspace/my-project']);
-    } else if (command === 'date') {
-      setTerminalHistory(prev => [...prev, new Date().toString()]);
-    } else {
-      setTerminalHistory(prev => [...prev, `Command not found: ${command}`]);
     }
 
-    setTerminalInput('');
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, isOpen: false } : f));
   };
 
-  const commands = [
-    { id: 'new', label: 'New File', action: () => setShowNewFileDialog(true) },
-    { id: 'save', label: 'Save', action: handleSave },
-    { id: 'format', label: 'Format Document', action: handleFormat },
-    { id: 'download', label: 'Download File', action: handleDownload },
-    { id: 'split', label: 'Toggle Split View', action: () => setSplitView(!splitView) },
-    { id: 'minimap', label: 'Toggle Minimap', action: () => setShowMinimap(!showMinimap) },
-    { id: 'wrap', label: 'Toggle Word Wrap', action: () => setWordWrap(w => w === 'on' ? 'off' : 'on') },
-    { id: 'whitespace', label: 'Toggle Whitespace', action: () => setShowWhitespace(!showWhitespace) },
-    { id: 'zoom-in', label: 'Zoom In', action: () => setFontSize(s => Math.min(s + 2, 32)) },
-    { id: 'zoom-out', label: 'Zoom Out', action: () => setFontSize(s => Math.max(s - 2, 8)) },
-    { id: 'terminal', label: 'Toggle Terminal', action: () => setShowTerminal(!showTerminal) },
-    { id: 'sidebar', label: 'Toggle Sidebar', action: () => setActivePanel(activePanel ? null : 'explorer') },
-    { id: 'preview', label: 'Toggle Preview', action: () => setShowPreview(!showPreview) },
-    { id: 'theme-dark', label: 'Theme: Dark', action: () => setTheme('dark') },
-    { id: 'theme-light', label: 'Theme: Light', action: () => setTheme('light') },
-    { id: 'theme-hc', label: 'Theme: High Contrast', action: () => setTheme('high-contrast') },
-  ];
+  const handleDeleteFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
+    if (activeFileId === id) {
+      const remaining = files.filter(f => f.id !== id && f.isOpen);
+      if (remaining.length > 0) setActiveFileId(remaining[remaining.length - 1].id);
+      else setActiveFileId('');
+    }
+  };
 
-  const filteredCommands = commands.filter(c =>
-    c.label.toLowerCase().includes(commandSearch.toLowerCase())
-  );
+  const handleCreateFile = () => {
+    let name = newFileName.trim();
+    if (!name) return;
 
-  const getBgColor = () => theme === 'light' ? '#f3f3f3' : theme === 'dark' ? '#1e1e1e' : '#000000';
-  const getTextColor = () => theme === 'light' ? '#000000' : '#cccccc';
-  const getSidebarBg = () => theme === 'light' ? '#e8e8e8' : theme === 'dark' ? '#252526' : '#000000';
+    // Strict validation - only allow .html, .css, .js
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (!ext || !['html', 'css', 'js'].includes(ext)) {
+      toast({ title: "Invalid File Type", description: "Only .html, .css, and .js files are allowed.", variant: "destructive", className: "bg-red-900 border-red-800 text-white" });
+      return;
+    }
+
+    let lang: 'html' | 'css' | 'javascript' = 'javascript';
+    if (ext === 'html') lang = 'html';
+    if (ext === 'css') lang = 'css';
+
+    const newFile: FileTab = {
+      id: Date.now().toString(),
+      name: name,
+      language: lang,
+      content: '',
+      modified: false,
+      isOpen: true
+    };
+
+    setFiles(prev => [...prev, newFile]);
+    setActiveFileId(newFile.id);
+    setNewFileDialogOpen(false);
+    setNewFileName('');
+    toast({ title: "File Created", description: `${name} created successfully.`, className: "bg-[#252526] text-white" });
+  };
+
+  const handleOpenFile = (id: string) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, isOpen: true } : f));
+    setActiveFileId(id);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadedFiles = e.target.files;
+    if (!uploadedFiles) return;
+    Array.from(uploadedFiles).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        let lang: 'html' | 'css' | 'javascript' | null = null;
+        if (ext === 'html' || ext === 'htm') lang = 'html';
+        else if (ext === 'css') lang = 'css';
+        else if (ext === 'js') lang = 'javascript';
+        if (lang) {
+          const newFile = { id: Date.now().toString() + Math.random().toString(), name: file.name, language: lang, content, modified: true, isOpen: true };
+          setFiles(prev => [...prev, newFile]);
+          setActiveFileId(newFile.id);
+        }
+      };
+      reader.readAsText(file);
+    });
+    setUploadDialogOpen(false);
+  };
+
+  // --- ICONS HELPER ---
+  const getFileIcon = (lang: string, className?: string) => {
+    if (lang === 'html') return <HtmlIcon className={className} />;
+    if (lang === 'css') return <CssIcon className={className} />;
+    return <JsIcon className={className} />;
+  };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: getBgColor(), color: getTextColor() }}>
-      {showCommandPalette && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-20">
-          <div className="bg-[#252526] border border-[#3c3c3c] rounded-lg w-full max-w-2xl">
-            <input
-              type="text"
-              value={commandSearch}
-              onChange={(e) => setCommandSearch(e.target.value)}
-              placeholder="Type a command..."
-              className="w-full px-4 py-3 bg-[#3c3c3c] text-white outline-none"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') { setShowCommandPalette(false); setCommandSearch(''); }
-                if (e.key === 'Enter' && filteredCommands[0]) {
-                  filteredCommands[0].action();
-                  setShowCommandPalette(false);
-                  setCommandSearch('');
-                }
-              }}
-            />
-            <div className="max-h-96 overflow-auto">
-              {filteredCommands.map(cmd => (
-                <div
-                  key={cmd.id}
-                  onClick={() => { cmd.action(); setShowCommandPalette(false); setCommandSearch(''); }}
-                  className="px-4 py-2 hover:bg-[#094771] cursor-pointer text-sm text-white"
-                >
-                  {cmd.label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+    <div className="h-screen w-screen bg-[#1e1e1e] flex flex-col text-[#cccccc] overflow-hidden font-sans">
 
-      {showQuickOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-20">
-          <div className="bg-[#252526] border border-[#3c3c3c] rounded-lg w-full max-w-2xl">
-            <input
-              type="text"
-              value={quickOpenSearch}
-              onChange={(e) => setQuickOpenSearch(e.target.value)}
-              placeholder="Go to File..."
-              className="w-full px-4 py-3 bg-[#3c3c3c] text-white outline-none"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') { setShowQuickOpen(false); setQuickOpenSearch(''); }
-              }}
-            />
-            <div className="max-h-96 overflow-auto">
-              {files.filter(f => f.name.toLowerCase().includes(quickOpenSearch.toLowerCase())).map(file => (
-                <div
-                  key={file.id}
-                  onClick={() => { setActiveFileId(file.id); setShowQuickOpen(false); setQuickOpenSearch(''); }}
-                  className="px-4 py-2 hover:bg-[#094771] cursor-pointer text-sm flex items-center text-white"
-                >
-                  <FileCode className="w-4 h-4 mr-2" />
-                  {file.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 1. Menubar */}
+      <div className="h-[35px] bg-[#323233] flex items-center px-2 select-none border-b border-[#2b2b2b] justify-between z-50">
+        <div className="flex items-center">
+          <Link href="/" className="mr-4 ml-2">
+            <img src="/favicon.ico" className="w-5 h-5 grayscale opacity-80 hover:opacity-100 transition-opacity" alt="logo" onError={(e) => e.currentTarget.style.display = 'none'} />
+          </Link>
 
-      {showUploadDialog && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-white text-lg mb-4">Upload Files</h3>
-            <p className="text-[#cccccc] text-sm mb-4">Upload HTML, CSS, or JavaScript files</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".html,.htm,.css,.js"
-              multiple
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 px-4 py-2 bg-[#0e639c] hover:bg-[#1177bb] text-white rounded font-semibold"
-              >
-                Choose Files
-              </button>
-              <button
-                onClick={() => setShowUploadDialog(false)}
-                className="px-4 py-2 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white rounded"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showNewFileDialog && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-white text-lg mb-4">Create New File</h3>
-            <input
-              type="text"
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              placeholder="File name..."
-              className="w-full px-4 py-2 bg-[#3c3c3c] text-white outline-none rounded mb-4"
-              autoFocus
-              onKeyDown={(e) => e.key === 'Enter' && handleNewFile()}
-            />
-            <div className="flex gap-2 mb-4">
-              <button onClick={() => setNewFileType('html')} className={`px-4 py-2 rounded ${newFileType === 'html' ? 'bg-[#0e639c] text-white' : 'bg-[#3c3c3c] text-white'}`}>HTML</button>
-              <button onClick={() => setNewFileType('css')} className={`px-4 py-2 rounded ${newFileType === 'css' ? 'bg-[#0e639c] text-white' : 'bg-[#3c3c3c] text-white'}`}>CSS</button>
-              <button onClick={() => setNewFileType('javascript')} className={`px-4 py-2 rounded ${newFileType === 'javascript' ? 'bg-[#0e639c] text-white' : 'bg-[#3c3c3c] text-white'}`}>JavaScript</button>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleNewFile} className="px-4 py-2 bg-[#0e639c] rounded flex-1 text-white">Create</button>
-              <button onClick={() => { setShowNewFileDialog(false); setNewFileName(''); }} className="px-4 py-2 bg-[#3c3c3c] rounded text-white">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="h-9 bg-[#323233] flex items-center justify-between px-4 border-b border-[#252526]">
-        <div className="flex items-center space-x-4">
-          <Link href="/"><button className="text-[#cccccc] hover:text-white flex items-center space-x-1.5 text-xs transition-colors"><ArrowLeft className="w-3.5 h-3.5" /><span>Back</span></button></Link>
-          <div className="h-4 w-px bg-[#454545]"></div>
-          <span className="text-[#cccccc] text-xs font-medium">Visual Studio Code</span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <button onClick={() => setShowNewFileDialog(true)} className="text-xs px-3 py-1.5 hover:bg-[#3c3c3c] rounded flex items-center text-[#cccccc] transition-colors"><FilePlus className="w-3.5 h-3.5 mr-1.5" />New</button>
-          <button onClick={() => setShowUploadDialog(true)} className="text-xs px-3 py-1.5 hover:bg-[#3c3c3c] rounded flex items-center text-[#cccccc] transition-colors"><Upload className="w-3.5 h-3.5 mr-1.5" />Upload</button>
-          <button onClick={handleSave} className="text-xs px-3 py-1.5 hover:bg-[#3c3c3c] rounded flex items-center text-[#cccccc] transition-colors"><Save className="w-3.5 h-3.5 mr-1.5" />Save</button>
-          <button onClick={handleFormat} className="text-xs px-3 py-1.5 hover:bg-[#3c3c3c] rounded flex items-center text-[#cccccc] transition-colors"><Code2 className="w-3.5 h-3.5 mr-1.5" />Format</button>
-          <button onClick={handleDownload} className="text-xs px-3 py-1.5 hover:bg-[#3c3c3c] rounded flex items-center text-[#cccccc] transition-colors"><Download className="w-3.5 h-3.5 mr-1.5" />Download</button>
+          <Menubar className="border-none bg-transparent h-auto p-0 space-x-1">
+            <MenubarMenu>
+              <MenubarTrigger className="text-[13px] text-[#cccccc] hover:bg-[#3c3c3c] hover:text-white px-2 py-0.5 h-auto rounded-sm cursor-pointer">File</MenubarTrigger>
+              <MenubarContent className="bg-[#252526] border-[#454545] text-[#cccccc]">
+                <MenubarItem onClick={() => setUploadDialogOpen(true)}>Open File... <MenubarShortcut>{CTRL_KEY}O</MenubarShortcut></MenubarItem>
+                <MenubarSeparator className="bg-[#454545]" />
+                <MenubarItem onClick={handleSave}>Save <MenubarShortcut>{CTRL_KEY}S</MenubarShortcut></MenubarItem>
+              </MenubarContent>
+            </MenubarMenu>
+            <MenubarMenu>
+              <MenubarTrigger className="text-[13px] text-[#cccccc] hover:bg-[#3c3c3c] hover:text-white px-2 py-0.5 h-auto rounded-sm cursor-pointer">View</MenubarTrigger>
+              <MenubarContent className="bg-[#252526] border-[#454545] text-[#cccccc]">
+                <MenubarItem onClick={() => setTerminalOpen(!terminalOpen)}>Toggle Terminal <MenubarShortcut>{CTRL_KEY}`</MenubarShortcut></MenubarItem>
+              </MenubarContent>
+            </MenubarMenu>
+          </Menubar>
         </div>
       </div>
 
+      {/* 2. Main Workbench */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-12 bg-[#333333] flex flex-col items-center py-2 border-r border-[#252526]">
-          <button onClick={() => setActivePanel(activePanel === 'explorer' ? null : 'explorer')} className={`p-3 mb-1 rounded ${activePanel === 'explorer' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Explorer"><Files className="w-5 h-5" /></button>
-          <button onClick={() => setActivePanel(activePanel === 'search' ? null : 'search')} className={`p-3 mb-1 rounded ${activePanel === 'search' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Search"><Search className="w-5 h-5" /></button>
-          <button onClick={() => setActivePanel(activePanel === 'git' ? null : 'git')} className={`p-3 mb-1 rounded relative ${activePanel === 'git' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Source Control">
-            <GitBranch className="w-5 h-5" />
-            {gitChanges > 0 && <span className="absolute top-1 right-1 bg-[#0e639c] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">{gitChanges}</span>}
-          </button>
-          <button onClick={() => setActivePanel(activePanel === 'debug' ? null : 'debug')} className={`p-3 mb-1 rounded ${activePanel === 'debug' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Debug"><Bug className="w-5 h-5" /></button>
-          <button onClick={() => setActivePanel(activePanel === 'extensions' ? null : 'extensions')} className={`p-3 mb-1 rounded ${activePanel === 'extensions' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Extensions"><Package className="w-5 h-5" /></button>
+
+        {/* Activity Bar */}
+        <div className="w-[48px] bg-[#333333] flex flex-col items-center py-2 gap-4 flex-shrink-0 z-20 hidden md:flex">
+          <div onClick={() => setActiveActivity('explorer')} className={cn("p-3 cursor-pointer border-l-2 transition-all", activeActivity === 'explorer' ? "border-white text-white" : "border-transparent text-[#858585] hover:text-white")}>
+            <Files className="w-6 h-6" strokeWidth={1.5} />
+          </div>
+          <div onClick={() => setActiveActivity('search')} className={cn("p-3 cursor-pointer border-l-2 transition-all", activeActivity === 'search' ? "border-white text-white" : "border-transparent text-[#858585] hover:text-white")}>
+            <Search className="w-6 h-6" strokeWidth={1.5} />
+          </div>
           <div className="flex-1" />
-          <button onClick={() => setShowTerminal(!showTerminal)} className={`p-3 mb-1 rounded ${showTerminal ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Toggle Terminal"><Terminal className="w-5 h-5" /></button>
-          <button onClick={() => setShowCommandPalette(true)} className="p-3 mb-1 text-[#858585] hover:text-white rounded" title="Command Palette"><Menu className="w-5 h-5" /></button>
-          <button onClick={() => setActivePanel(activePanel === 'settings' ? null : 'settings')} className={`p-3 rounded ${activePanel === 'settings' ? 'text-white bg-[#252526] border-l-2 border-white' : 'text-[#858585] hover:text-white'}`} title="Settings"><Settings className="w-5 h-5" /></button>
+          <div onClick={() => setActiveActivity('settings')} className={cn("p-3 cursor-pointer border-l-2 transition-all", activeActivity === 'settings' ? "border-white text-white" : "border-transparent text-[#858585] hover:text-white")}>
+            <Settings className="w-6 h-6" strokeWidth={1.5} />
+          </div>
         </div>
 
-        {activePanel && (
-          <div className="w-80 flex flex-col border-r border-[#1e1e1e]" style={{ background: getSidebarBg() }}>
-            {activePanel === 'explorer' && (
-              <>
-                <div className="px-4 py-2.5 text-[11px] font-semibold text-[#cccccc] uppercase flex items-center justify-between">
-                  <span>Explorer</span>
-                  <button onClick={() => setShowNewFileDialog(true)} className="text-[#cccccc] hover:text-white p-1 rounded" title="New File">
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-auto">
-                  <div className="px-2">
-                    <div onClick={() => setExplorerOpen(!explorerOpen)} className="flex items-center py-1 hover:bg-[#2a2d2e] cursor-pointer text-[13px] rounded">
-                      {explorerOpen ? <ChevronDown className="w-4 h-4 mr-1" /> : <ChevronRight className="w-4 h-4 mr-1" />}
-                      <span className="font-semibold text-[#cccccc] uppercase text-[11px]">Workspace</span>
-                    </div>
-                    {explorerOpen && (
-                      <div className="ml-2 mt-1">
-                        {files.map(file => {
-                          const FileIcon = () => {
-                            if (file.language === 'html') return (
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#e34c26">
-                                <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.565-2.438L1.5 0zm7.031 9.75l-.232-2.718 10.059.003.23-2.622L5.412 4.41l.698 8.01h9.126l-.326 3.426-2.91.804-2.955-.81-.188-2.11H6.248l.33 4.171L12 19.351l5.379-1.443.744-8.157H8.531z" />
-                              </svg>
-                            );
-                            if (file.language === 'css') return (
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#264de4">
-                                <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.564-2.438L1.5 0zm4.09 4.5l.398 4.5h8.02l-.27 3-.896.28-2.81.8-.814-.23-.067-.78H6.19l.13 1.5 4.29 1.21h.001l4.28-1.21.58-6.5H5.59l-.13-1.5h9.98l.13-1.5H5.59z" />
-                              </svg>
-                            );
-                            if (file.language === 'javascript') return (
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#f7df1e">
-                                <path d="M0 0h24v24H0V0zm22.034 18.276c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067zm-8.983-7.245h-2.248c0 1.938-.009 3.864-.009 5.805 0 1.232.063 2.363-.138 2.711-.33.689-1.18.601-1.566.48-.396-.196-.597-.466-.83-.855-.063-.105-.11-.196-.127-.196l-1.825 1.125c.305.63.75 1.172 1.324 1.517.855.51 2.004.675 3.207.405.783-.226 1.458-.691 1.811-1.411.51-.93.402-2.07.397-3.346.012-2.054 0-4.109 0-6.179l.004-.056z" />
-                              </svg>
-                            );
-                            return <FileCode className="w-4 h-4 text-[#cccccc]" />;
-                          };
+        <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"}>
+
+          {/* Sidebar (Explorer / Search) */}
+          {!isMobile && (
+            <>
+              <ResizablePanel defaultSize={20} maxSize={30} minSize={10} className="bg-[#252526] border-r border-[#2b2b2b] flex flex-col">
+                {activeActivity === 'explorer' && (
+                  <>
+                    <ContextMenu>
+                      <ContextMenuTrigger className="w-full h-full flex flex-col">
+                        <div className="px-5 h-[35px] flex items-center justify-between text-[11px] font-bold text-[#bbbbbb] tracking-wide uppercase group cursor-pointer hover:text-white">
+                          <span>EXPLORER</span>
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100">
+                            <FolderPlus className="w-4 h-4 cursor-pointer hover:text-white" onClick={(e) => { e.stopPropagation(); toast({ title: "New Folder", description: "Folder creation is simulated in this web view.", className: "bg-[#252526] text-white my-2" }); }} />
+                            <Plus className="w-4 h-4 cursor-pointer hover:text-white" onClick={(e) => { e.stopPropagation(); setNewFileDialogOpen(true); }} />
+                          </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto pt-2">
+                          {/* ALL FILES */}
+                          <div className="px-3 py-1 text-[11px] font-bold text-blue-400 flex items-center gap-1 hover:bg-[#2a2d2e] cursor-pointer">MOBILECODE-PRO</div>
+                          {files.map(f => (
+                            <ContextMenu key={f.id}>
+                              <ContextMenuTrigger>
+                                <div onClick={() => handleOpenFile(f.id)} className={cn("flex items-center px-4 py-1 cursor-pointer text-[13px] border-l-2 border-transparent gap-2 hover:bg-[#2a2d2e] group", activeFileId === f.id ? "bg-[#37373d] text-white border-blue-400" : "text-[#cccccc]")}>
+                                  {getFileIcon(f.language, "w-4 h-4")}
+                                  <span className="flex-1 truncate">{f.name}</span>
+                                  {f.modified && <span className="w-2 h-2 rounded-full bg-white" />}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="bg-[#252526] border-[#454545] text-[#cccccc]">
+                                <ContextMenuItem onClick={() => handleSave()}><Download className="w-4 h-4 mr-2" /> Save</ContextMenuItem>
+                                <ContextMenuItem onClick={() => handleDeleteFile(f.id)} className="text-red-400"><Trash2 className="w-4 h-4 mr-2" /> Delete</ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          ))}
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="bg-[#252526] border-[#454545] text-[#cccccc]">
+                        <ContextMenuItem onClick={() => setNewFileDialogOpen(true)}>New File...</ContextMenuItem>
+                        <ContextMenuItem onClick={() => setUploadDialogOpen(true)}>Import Files...</ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </>
+                )}
+                {activeActivity === 'search' && (
+                  <>
+                    <div className="px-5 h-[35px] flex items-center text-[11px] font-bold text-[#bbbbbb] tracking-wide uppercase">SEARCH</div>
+                    <div className="p-4">
+                      <div className="relative">
+                        <Input
+                          value={searchQuery}
+                          onChange={(e) => handleSearch(e.target.value)}
+                          placeholder="Search"
+                          className="bg-[#3c3c3c] border-transparent text-white h-8 text-xs focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="mt-4 text-xs text-[#cccccc]">
+                        {searchResults.length} results found
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {searchResults.map((res, i) => {
+                          const f = files.find(file => file.id === res.fileId);
                           return (
-                            <div
-                              key={file.id}
-                              onClick={() => handleOpenFile(file.id)}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                if (window.confirm(`Delete ${file.name}?`)) {
-                                  handleDeleteFile(file.id);
-                                }
-                              }}
-                              className={`group flex items-center px-2 py-1 cursor-pointer text-[13px] hover:bg-[#2a2d2e] rounded ${openTabs.includes(file.id) ? 'font-semibold' : ''}`}
-                            >
-                              <FileIcon />
-                              <span className="ml-2 flex-1 text-[#cccccc]">{file.name}</span>
-                              {file.modified && <Circle className="w-1.5 h-1.5 ml-2 fill-current text-[#4ec9b0]" />}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (window.confirm(`Delete ${file.name}?`)) {
-                                    handleDeleteFile(file.id);
-                                  }
-                                }}
-                                className="ml-2 p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[#3c3c3c] rounded transition-opacity"
-                                title="Delete"
-                              >
-                                <X className="w-3 h-3 text-[#858585] hover:text-[#f14c4c]" />
-                              </button>
+                            <div key={i} onClick={() => setActiveFileId(res.fileId)} className="cursor-pointer hover:bg-[#37373d] p-1 rounded">
+                              <div className="font-bold flex items-center gap-1">{getFileIcon(f!.language, "w-3 h-3")} {f?.name}</div>
+                              <div className="pl-4 text-[#858585] truncate">{res.text}</div>
                             </div>
-                          );
+                          )
                         })}
                       </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {activePanel === 'search' && (
-              <>
-                <div className="px-4 py-2 text-[11px] font-semibold text-[#bbbbbb] uppercase">Search</div>
-                <div className="p-4 space-y-3">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search in files..."
-                    className="w-full px-3 py-2 bg-[#3c3c3c] text-white outline-none rounded text-sm"
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  />
-                  <input
-                    type="text"
-                    value={replaceQuery}
-                    onChange={(e) => setReplaceQuery(e.target.value)}
-                    placeholder="Replace with..."
-                    className="w-full px-3 py-2 bg-[#3c3c3c] text-white outline-none rounded text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={handleSearch} className="px-3 py-1 bg-[#0e639c] text-white rounded text-sm flex-1">Search</button>
-                    <button onClick={handleReplace} className="px-3 py-1 bg-[#3c3c3c] text-white rounded text-sm">Replace All</button>
-                  </div>
-                  <div className="text-xs text-[#858585] mt-2">{searchResults.length} results</div>
-                  <div className="space-y-1 max-h-96 overflow-auto">
-                    {searchResults.map((result, idx) => {
-                      const file = files.find(f => f.id === result.fileId);
-                      return (
-                        <div key={idx} onClick={() => setActiveFileId(result.fileId)} className="p-2 bg-[#2a2d2e] rounded cursor-pointer hover:bg-[#094771] text-xs">
-                          <div className="text-[#858585]">{file?.name} : Line {result.line}</div>
-                          <div className="text-white truncate">{result.text}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {activePanel === 'git' && (
-              <>
-                <div className="px-4 py-2 text-[11px] font-semibold text-[#bbbbbb] uppercase">Source Control</div>
-                <div className="p-4 space-y-3">
-                  <div className="flex items-center text-sm">
-                    <GitBranch className="w-4 h-4 mr-2" />
-                    <span>{gitBranch}</span>
-                  </div>
-                  <div className="text-xs text-[#858585]">{gitChanges} changed files</div>
-                  <div className="space-y-1">
-                    {files.filter(f => f.modified).map(file => (
-                      <div key={file.id} className="p-2 bg-[#2a2d2e] rounded text-sm flex items-center justify-between">
-                        <div className="flex items-center">
-                          <FileCode className="w-4 h-4 mr-2 text-[#e37933]" />
-                          <span>{file.name}</span>
-                        </div>
-                        <span className="text-[#858585] text-xs">M</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="w-full px-3 py-2 bg-[#0e639c] text-white rounded text-sm">Commit Changes</button>
-                </div>
-              </>
-            )}
-
-            {activePanel === 'debug' && (
-              <>
-                <div className="px-4 py-2 text-[11px] font-semibold text-[#bbbbbb] uppercase">Run & Debug</div>
-                <div className="p-4 space-y-3">
-                  <button className="w-full px-3 py-2 bg-[#388a34] text-white rounded text-sm flex items-center justify-center">
-                    <Play className="w-4 h-4 mr-2" />
-                    Run Without Debugging
-                  </button>
-                  <button className="w-full px-3 py-2 bg-[#0e639c] text-white rounded text-sm flex items-center justify-center">
-                    <Bug className="w-4 h-4 mr-2" />
-                    Start Debugging
-                  </button>
-                  <div className="text-xs text-[#858585] mt-4">No launch configuration</div>
-                </div>
-              </>
-            )}
-
-            {activePanel === 'extensions' && (
-              <>
-                <div className="px-4 py-2 text-[11px] font-semibold text-[#bbbbbb] uppercase">Extensions</div>
-                <div className="p-4 space-y-2">
-                  <input
-                    type="text"
-                    placeholder="Search extensions..."
-                    className="w-full px-3 py-2 bg-[#3c3c3c] text-white outline-none rounded text-sm"
-                  />
-                  <div className="space-y-2 mt-3">
-                    {['Prettier', 'ESLint', 'Live Server', 'GitLens'].map((ext, idx) => (
-                      <div key={idx} className="p-3 bg-[#2a2d2e] rounded">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-semibold">{ext}</span>
-                          <button className="px-2 py-1 bg-[#0e639c] text-white rounded text-xs">Install</button>
-                        </div>
-                        <div className="text-xs text-[#858585]">Popular extension for {ext.toLowerCase()}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {activePanel === 'settings' && (
-              <>
-                <div className="px-4 py-3 text-[11px] font-semibold text-[#cccccc] uppercase border-b border-[#1e1e1e]">Settings</div>
-                <div className="p-4 space-y-6 overflow-auto">
-                  <div>
-                    <label className="text-sm block mb-3 text-[#cccccc] font-medium">Editor Theme</label>
-                    <div className="flex gap-2">
-                      <button onClick={() => setTheme('dark')} className={`flex-1 px-3 py-2.5 rounded text-sm flex items-center justify-center transition-all ${theme === 'dark' ? 'bg-[#0e639c] text-white shadow-md' : 'bg-[#3c3c3c] text-[#cccccc] hover:bg-[#4c4c4c]'}`}>
-                        <Moon className="w-4 h-4 mr-1.5" />Dark
-                      </button>
-                      <button onClick={() => setTheme('light')} className={`flex-1 px-3 py-2.5 rounded text-sm flex items-center justify-center transition-all ${theme === 'light' ? 'bg-[#0e639c] text-white shadow-md' : 'bg-[#3c3c3c] text-[#cccccc] hover:bg-[#4c4c4c]'}`}>
-                        <Sun className="w-4 h-4 mr-1.5" />Light
-                      </button>
                     </div>
-                  </div>
-                  <div className="border-t border-[#3c3c3c] pt-4">
-                    <label className="text-sm block mb-3 text-[#cccccc] font-medium">Font Size: <span className="text-[#0e639c]">{fontSize}px</span></label>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setFontSize(s => Math.max(s - 2, 8))} className="px-3 py-2 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white rounded transition-colors"><ZoomOut className="w-4 h-4" /></button>
-                      <input type="range" min="8" max="32" step="2" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="flex-1" />
-                      <button onClick={() => setFontSize(s => Math.min(s + 2, 32))} className="px-3 py-2 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white rounded transition-colors"><ZoomIn className="w-4 h-4" /></button>
+                  </>
+                )}
+                {activeActivity === 'settings' && (
+                  <>
+                    <div className="px-5 h-[35px] flex items-center text-[11px] font-bold text-[#bbbbbb] tracking-wide uppercase">SETTINGS</div>
+                    <div className="p-4 space-y-4">
+                      <div className="space-y-2">
+                        <div className="text-xs font-bold text-[#cccccc]">Font Size</div>
+                        <Input
+                          type="number"
+                          value={settings.fontSize}
+                          onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) || 14 })}
+                          className="bg-[#3c3c3c] border-transparent text-white h-7 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-bold text-[#cccccc]">Word Wrap</div>
+                        <div className="flex items-center gap-2">
+                          <Button variant={settings.wordWrap === 'on' ? "secondary" : "ghost"} size="sm" onClick={() => setSettings({ ...settings, wordWrap: 'on' })} className="h-6 text-xs bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white">On</Button>
+                          <Button variant={settings.wordWrap === 'off' ? "secondary" : "ghost"} size="sm" onClick={() => setSettings({ ...settings, wordWrap: 'off' })} className="h-6 text-xs hover:bg-[#3c3c3c] text-[#cccccc]">Off</Button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-bold text-[#cccccc]">Minimap</div>
+                          <div onClick={() => setSettings({ ...settings, minimap: !settings.minimap })} className={cn("w-8 h-4 rounded-full cursor-pointer relative transition-colors", settings.minimap ? "bg-[#007acc]" : "bg-[#3c3c3c]")}>
+                            <div className={cn("w-2 h-2 rounded-full bg-white absolute top-1 transition-all", settings.minimap ? "left-5" : "left-1")} />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-bold text-[#cccccc]">Format On Save</div>
+                          <div onClick={() => setSettings({ ...settings, formatOnSave: !settings.formatOnSave })} className={cn("w-8 h-4 rounded-full cursor-pointer relative transition-colors", settings.formatOnSave ? "bg-[#007acc]" : "bg-[#3c3c3c]")}>
+                            <div className={cn("w-2 h-2 rounded-full bg-white absolute top-1 transition-all", settings.formatOnSave ? "left-5" : "left-1")} />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-bold text-[#cccccc]">Theme</div>
+                        <div className="text-xs text-[#858585]">{settings.theme}</div>
+                      </div>
+                      <div className="border-t border-[#3c3c3c] pt-4">
+                        <div className="text-xs text-[#858585]">MobileCode Pro v1.0.0</div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="border-t border-[#3c3c3c] pt-4 space-y-3">
-                    <label className="text-sm block mb-3 text-[#cccccc] font-medium">Editor Options</label>
-                    <label className="flex items-center justify-between text-sm text-[#cccccc] hover:bg-[#2a2d2e] p-2 rounded cursor-pointer">
-                      <span>Show Minimap</span>
-                      <input type="checkbox" checked={showMinimap} onChange={(e) => setShowMinimap(e.target.checked)} className="w-4 h-4" />
-                    </label>
-                    <label className="flex items-center justify-between text-sm text-[#cccccc] hover:bg-[#2a2d2e] p-2 rounded cursor-pointer">
-                      <span>Word Wrap</span>
-                      <input type="checkbox" checked={wordWrap === 'on'} onChange={(e) => setWordWrap(e.target.checked ? 'on' : 'off')} className="w-4 h-4" />
-                    </label>
-                    <label className="flex items-center justify-between text-sm text-[#cccccc] hover:bg-[#2a2d2e] p-2 rounded cursor-pointer">
-                      <span>Show Whitespace</span>
-                      <input type="checkbox" checked={showWhitespace} onChange={(e) => setShowWhitespace(e.target.checked)} className="w-4 h-4" />
-                    </label>
-                    <label className="flex items-center justify-between text-sm text-[#cccccc] hover:bg-[#2a2d2e] p-2 rounded cursor-pointer">
-                      <span>Auto Save</span>
-                      <input type="checkbox" defaultChecked className="w-4 h-4" />
-                    </label>
-                  </div>
-                  <div className="border-t border-[#3c3c3c] pt-4">
-                    <button onClick={() => { if (window.confirm('Reset all settings to default?')) { setTheme('dark'); setFontSize(14); setShowMinimap(true); setWordWrap('off'); setShowWhitespace(false); } }} className="w-full px-4 py-2.5 bg-[#3c3c3c] hover:bg-[#f14c4c] text-white rounded transition-colors">
-                      Reset to Defaults
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                  </>
+                )}
+              </ResizablePanel>
+              <ResizableHandle className="bg-[#2b2b2b] hover:bg-[#007acc] w-[1px]" />
+            </>
+          )}
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="h-9 bg-[#252526] flex items-center justify-between border-b border-[#1e1e1e]">
-            <div className="flex items-center overflow-x-auto">
-              {openTabs.map(fileId => {
-                const file = files.find(f => f.id === fileId);
-                if (!file) return null;
-                const FileIcon = () => {
-                  if (file.language === 'html') return (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#e34c26">
-                      <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.565-2.438L1.5 0zm7.031 9.75l-.232-2.718 10.059.003.23-2.622L5.412 4.41l.698 8.01h9.126l-.326 3.426-2.91.804-2.955-.81-.188-2.11H6.248l.33 4.171L12 19.351l5.379-1.443.744-8.157H8.531z" />
-                    </svg>
-                  );
-                  if (file.language === 'css') return (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#264de4">
-                      <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.564-2.438L1.5 0zm4.09 4.5l.398 4.5h8.02l-.27 3-.896.28-2.81.8-.814-.23-.067-.78H6.19l.13 1.5 4.29 1.21h.001l4.28-1.21.58-6.5H5.59l-.13-1.5h9.98l.13-1.5H5.59z" />
-                    </svg>
-                  );
-                  if (file.language === 'javascript') return (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#f7df1e">
-                      <path d="M0 0h24v24H0V0zm22.034 18.276c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067zm-8.983-7.245h-2.248c0 1.938-.009 3.864-.009 5.805 0 1.232.063 2.363-.138 2.711-.33.689-1.18.601-1.566.48-.396-.196-.597-.466-.83-.855-.063-.105-.11-.196-.127-.196l-1.825 1.125c.305.63.75 1.172 1.324 1.517.855.51 2.004.675 3.207.405.783-.226 1.458-.691 1.811-1.411.51-.93.402-2.07.397-3.346.012-2.054 0-4.109 0-6.179l.004-.056z" />
-                    </svg>
-                  );
-                  return <FileCode className="w-4 h-4" />;
-                };
-                return (
-                  <div
-                    key={file.id}
-                    onClick={() => setActiveFileId(file.id)}
-                    className={`h-9 flex items-center px-3 cursor-pointer border-r border-[#1e1e1e] ${activeFileId === file.id
-                      ? 'bg-[#1e1e1e] text-white'
-                      : 'bg-[#2d2d2d] text-[#969696] hover:bg-[#2a2a2a]'
-                      }`}
-                  >
-                    <FileIcon />
-                    <span className="text-[13px] ml-2">{file.name}</span>
-                    {file.modified && <Circle className="w-1.5 h-1.5 ml-2 fill-current text-white" />}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCloseTab(file.id);
-                      }}
-                      className="ml-2 p-0.5 hover:bg-[#3c3c3c] rounded"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center px-2 space-x-1">
-              <button
-                onClick={() => setSplitView(!splitView)}
-                className={`p-1.5 rounded ${splitView ? 'bg-[#0e639c]' : 'hover:bg-[#3c3c3c]'}`}
-                title="Split Editor"
-              >
-                <SplitSquareVertical className="w-4 h-4 text-[#cccccc]" />
-              </button>
-              <button
-                onClick={() => setShowPreview(!showPreview)}
-                className={`p-1.5 rounded ${showPreview ? 'bg-[#0e639c]' : 'hover:bg-[#3c3c3c]'}`}
-                title="Toggle Preview"
-              >
-                {showPreview ? <Eye className="w-4 h-4 text-[#cccccc]" /> : <EyeOff className="w-4 h-4 text-[#cccccc]" />}
-              </button>
-              <Button onClick={handleSave} className="h-7 px-3 bg-[#0e639c] hover:bg-[#1177bb] text-white text-xs">
-                <Play className="w-3 h-3 mr-1" />Run
-              </Button>
-            </div>
-          </div>
+          {/* Middle + Terminal */}
+          <ResizablePanel defaultSize={50} minSize={30}>
+            <ResizablePanelGroup direction="vertical">
 
-          <div className="flex-1 flex overflow-hidden">
-            {/* CODE EDITOR - Always show unless preview is fullscreen */}
-            <div className={`${!showPreview || splitView ? (splitView ? 'w-1/2' : 'w-full') : 'hidden'} flex flex-col border-r border-[#252526]`}>
-              <div className="h-6 flex items-center px-3 text-xs text-[#969696] border-b" style={{ background: getSidebarBg() }}>
-                <Folder className="w-3 h-3 mr-1" />
-                <span>my-project</span>
-                <ChevronRight className="w-3 h-3 mx-1" />
-                <span style={{ color: getTextColor() }}>{getActiveFile().name}</span>
-              </div>
-              <div className="flex-1">
-                {files.length === 0 ? (
-                  <div className="h-full flex items-center justify-center bg-[#1e1e1e]">
-                    <div className="text-center max-w-2xl px-8">
+              {/* Editor or Welcome Screen */}
+              <ResizablePanel defaultSize={terminalOpen ? 70 : 100} minSize={30}>
+                <div className="h-full flex flex-col bg-[#1e1e1e]">
+                  {activeFileId ? (
+                    <>
+                      <div className="flex bg-[#252526] border-b border-[#2b2b2b] overflow-x-auto no-scrollbar flex-shrink-0 w-full min-h-[35px] max-w-[100vw]">
+                        {files.filter(f => f.isOpen).map(f => (
+                          <div key={f.id} onClick={() => setActiveFileId(f.id)} className={cn("px-3 py-2 text-[13px] border-r border-[#2b2b2b] flex items-center gap-2 min-w-[120px] max-w-[200px] cursor-pointer select-none relative group h-full", activeFileId === f.id ? "bg-[#1e1e1e] text-white border-t-2 border-t-[#007acc]" : "bg-[#2d2d2d] text-[#969696]")}>
+                            {getFileIcon(f.language, "w-3.5 h-3.5")}
+                            <span className="truncate flex-1">{f.name}</span>
+                            <span className={cn("absolute right-2 top-2.5", f.modified ? "block" : "hidden group-hover:block")}>
+                              {f.modified ? <div className="w-2 h-2 rounded-full bg-white" /> : <X className="w-4 h-4 p-0.5 rounded hover:bg-[#4a4a4a]" onClick={(e) => handleCloseTab(f.id, e)} />}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex-1 relative">
+                        <Editor
+                          height="100%"
+                          theme="vscode-dark-custom"
+                          path={activeFile?.name}
+                          defaultLanguage={activeFile?.language}
+                          value={activeFile?.content}
+                          onChange={handleFileChange}
+                          onMount={(editor) => {
+                            editorRef.current = editor;
+                            editor.onDidChangeCursorPosition((e) => {
+                              setCursorPosition({ ln: e.position.lineNumber, col: e.position.column });
+                            });
+                          }}
+                          options={{ fontSize: settings.fontSize, wordWrap: settings.wordWrap as any, minimap: { enabled: settings.minimap }, fontFamily: "JetBrains Mono, Menlo, monospace", formatOnType: true, autoClosingBrackets: 'always' }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-[#858585]">
                       <div className="mb-8">
-                        <Code2 className="w-24 h-24 mx-auto text-[#007acc] mb-6" />
-                        <h1 className="text-4xl font-bold text-white mb-4">Welcome to VS Code Editor</h1>
-                        <p className="text-[#858585] text-lg mb-8">Start by creating a new file or uploading your project files</p>
+                        <FileCode className="w-32 h-32 opacity-10 text-[#cccccc]" strokeWidth={0.5} />
                       </div>
-                      <div className="flex gap-4 justify-center">
-                        <button
-                          onClick={() => setShowNewFileDialog(true)}
-                          className="px-6 py-3 bg-[#0e639c] hover:bg-[#1177bb] text-white rounded-lg font-semibold flex items-center transition-colors"
-                        >
-                          <FilePlus className="w-5 h-5 mr-2" />
-                          Create New File
-                        </button>
-                        <button
-                          onClick={() => setShowUploadDialog(true)}
-                          className="px-6 py-3 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white rounded-lg font-semibold flex items-center transition-colors"
-                        >
-                          <Upload className="w-5 h-5 mr-2" />
-                          Upload Files
-                        </button>
-                      </div>
-                      <div className="mt-12 grid grid-cols-3 gap-6 text-left">
-                        <div className="p-4 bg-[#252526] rounded-lg border border-[#3c3c3c]">
-                          <Files className="w-6 h-6 text-[#007acc] mb-2" />
-                          <h3 className="text-white font-semibold mb-1">File Explorer</h3>
-                          <p className="text-[#858585] text-sm">Manage your project files</p>
+                      <div className="text-2xl font-light text-[#cccccc] mb-6">MobileCode Pro</div>
+                      <div className="space-y-2 w-64">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-[#3794ff] cursor-pointer hover:underline" onClick={() => setUploadDialogOpen(true)}>Open File...</span>
+                          <span>{CTRL_KEY}O</span>
                         </div>
-                        <div className="p-4 bg-[#252526] rounded-lg border border-[#3c3c3c]">
-                          <Terminal className="w-6 h-6 text-[#007acc] mb-2" />
-                          <h3 className="text-white font-semibold mb-1">Integrated Terminal</h3>
-                          <p className="text-[#858585] text-sm">Run commands directly</p>
-                        </div>
-                        <div className="p-4 bg-[#252526] rounded-lg border border-[#3c3c3c]">
-                          <Eye className="w-6 h-6 text-[#007acc] mb-2" />
-                          <h3 className="text-white font-semibold mb-1">Live Preview</h3>
-                          <p className="text-[#858585] text-sm">See changes instantly</p>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-[#3794ff] cursor-pointer hover:underline" onClick={() => setNewFileDialogOpen(true)}>New File...</span>
+                          <span>{CTRL_KEY}N</span>
                         </div>
                       </div>
                     </div>
+                  )}
+                </div>
+              </ResizablePanel>
+
+              {/* Terminal Panel (Toggleable) */}
+              {terminalOpen && (
+                <>
+                  <ResizableHandle className="bg-[#2b2b2b] hover:bg-[#007acc] h-[1px]" />
+                  <ResizablePanel defaultSize={30} minSize={10} className="bg-[#1e1e1e]">
+                    <div className="flex items-center px-4 h-8 bg-[#1e1e1e] border-b border-[#2b2b2b] gap-4 justify-between">
+                      <div className="flex gap-4">
+                        <span className="text-[11px] font-bold text-white border-b border-white py-1 uppercase cursor-pointer">Terminal</span>
+                        <span className="text-[11px] font-bold text-[#858585] hover:text-[#cccccc] uppercase cursor-pointer">Output</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <PanelBottomClose className="w-4 h-4 cursor-pointer hover:text-white" onClick={() => setTerminalOpen(false)} />
+                        <X className="w-4 h-4 cursor-pointer hover:text-white" onClick={() => setTerminalOpen(false)} />
+                      </div>
+                    </div>
+                    <div className="p-4 font-mono text-sm text-[#cccccc] h-[calc(100%-32px)] overflow-y-auto">
+                      {terminalHistory.map((line, i) => <div key={i} className="mb-1">{line}</div>)}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#61c554]">➜</span>
+                        <input type="text" value={terminalInput} onChange={(e) => setTerminalInput(e.target.value)} onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const cmd = terminalInput.trim();
+                            setTerminalHistory(prev => [...prev, `➜  ~ ${cmd}`]);
+                            if (cmd === 'clear') setTerminalHistory([]);
+                            setTerminalInput('');
+                          }
+                        }} className="bg-transparent border-none outline-none flex-1 text-[#cccccc]" />
+                      </div>
+                    </div>
+                  </ResizablePanel>
+                </>
+              )}
+
+            </ResizablePanelGroup>
+          </ResizablePanel>
+
+          <ResizableHandle className="bg-[#2b2b2b] hover:bg-[#007acc] w-[1px]" onDragging={setIsResizing} />
+          <ResizablePanel defaultSize={30} minSize={20} className="bg-[#1e1e1e]">
+            <div className={cn("w-full h-full flex flex-col bg-[#1e1e1e]", isResizing && "pointer-events-none select-none")}>
+              <div className="h-[35px] bg-[#252526] border-b border-[#2b2b2b] flex items-center px-2 justify-between pointer-events-auto">
+                <div className="flex gap-1 bg-[#1e1e1e] p-1 rounded-md">
+                  <Button variant="ghost" size="icon" className={cn("h-6 w-6 rounded-sm", previewDevice === 'responsive' && "bg-[#37373d] text-white")} onClick={() => setPreviewDevice('responsive')}><Monitor className="w-3.5 h-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className={cn("h-6 w-6 rounded-sm", previewDevice === 'mobile' && "bg-[#37373d] text-white")} onClick={() => setPreviewDevice('mobile')}><Smartphone className="w-3.5 h-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className={cn("h-6 w-6 rounded-sm", previewDevice === 'tablet' && "bg-[#37373d] text-white")} onClick={() => setPreviewDevice('tablet')}><Tablet className="w-3.5 h-3.5" /></Button>
+                </div>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { const iframe = document.getElementById('preview-frame') as HTMLIFrameElement; if (iframe) iframe.src = iframe.src; }}><RefreshCw className="w-3.5 h-3.5" /></Button>
+              </div>
+
+              <div className={cn("w-full h-[calc(100%-35px)] bg-[#1e1e1e] flex items-center justify-center overflow-auto relative", previewDevice === 'responsive' ? "p-0" : "p-4")}>
+                {files.length > 0 ? (
+                  <div className={cn("transition-all duration-300 bg-white shadow-2xl overflow-hidden relative", previewDevice === 'responsive' && "w-full h-full rounded-none", previewDevice === 'mobile' && "w-[375px] h-[667px] rounded-[3rem] border-8 border-[#111]", previewDevice === 'tablet' && "w-[768px] h-[1024px] rounded-2xl border-8 border-[#111]")}>
+                    <iframe id="preview-frame" src={previewUrl} className="w-full h-full border-none bg-white" title="Live Preview" />
+                    {isResizing && <div className="absolute inset-0 z-50 bg-transparent" />}
                   </div>
                 ) : (
-                  files.map(file => (
-                    <div key={file.id} className={activeFileId === file.id ? 'h-full' : 'hidden'}>
-                      <Editor
-                        height="100%"
-                        language={file.language}
-                        value={file.content}
-                        onChange={(value) => handleFileChange(file.id, value)}
-                        theme={theme === 'dark' ? 'vs-dark' : theme === 'light' ? 'vs' : 'hc-black'}
-                        onMount={(editor) => handleEditorMount(editor, file.id)}
-                        options={{ automaticLayout: true }}
-                      />
-                    </div>
-                  ))
+                  <div className="flex flex-col items-center justify-center text-[#333] gap-4">
+                    <Smartphone className="w-16 h-16 opacity-20" />
+                    <div className="text-sm font-medium opacity-40">No Active Preview</div>
+                  </div>
                 )}
               </div>
-
-              {/* TERMINAL PANEL - Bottom of editor */}
-              {showTerminal && (
-                <div className="h-48 bg-[#1e1e1e] border-t border-[#252526] flex flex-col">
-                  <div className="h-8 bg-[#252526] flex items-center justify-between px-3">
-                    <div className="flex items-center space-x-3 text-xs">
-                      <button onClick={() => setActiveTerminalTab('terminal')} className={`pb-1 ${activeTerminalTab === 'terminal' ? 'text-white border-b-2 border-[#007acc]' : 'text-[#858585] hover:text-white'}`}>TERMINAL</button>
-                      <button onClick={() => setActiveTerminalTab('problems')} className={`pb-1 ${activeTerminalTab === 'problems' ? 'text-white border-b-2 border-[#007acc]' : 'text-[#858585] hover:text-white'}`}>PROBLEMS</button>
-                      <button onClick={() => setActiveTerminalTab('output')} className={`pb-1 ${activeTerminalTab === 'output' ? 'text-white border-b-2 border-[#007acc]' : 'text-[#858585] hover:text-white'}`}>OUTPUT</button>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button onClick={() => setTerminalHistory([])} className="text-[#858585] hover:text-white" title="Clear"><RotateCcw className="w-3 h-3" /></button>
-                      <button onClick={() => setShowTerminal(false)} className="text-[#858585] hover:text-white"><X className="w-3 h-3" /></button>
-                    </div>
-                  </div>
-                  <div className="flex-1 overflow-auto p-2 text-xs font-mono">
-                    {activeTerminalTab === 'terminal' && (
-                      <div>
-                        {terminalHistory.map((line, idx) => (
-                          <div key={idx} className="text-[#cccccc] mb-1">{line}</div>
-                        ))}
-                        <div className="flex items-center mt-2">
-                          <span className="text-[#4ec9b0] mr-2">$</span>
-                          <input
-                            type="text"
-                            value={terminalInput}
-                            onChange={(e) => setTerminalInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleTerminalCommand()}
-                            className="flex-1 bg-transparent text-white outline-none"
-                            placeholder="Type command (help, ls, pwd, clear, date)..."
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {activeTerminalTab === 'problems' && (
-                      <div className="text-[#858585] italic">No problems detected in workspace</div>
-                    )}
-                    {activeTerminalTab === 'output' && (
-                      <div className="text-[#858585] italic">Build output will appear here...</div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
+          </ResizablePanel>
 
-            {/* LIVE PREVIEW */}
-            {showPreview && (
-              <div className={`${splitView ? 'w-1/2' : 'w-full'} flex flex-col`} style={{ background: getBgColor() }}>
-                <div className="h-9 bg-[#252526] flex items-center justify-between px-3 border-b border-[#1e1e1e]">
-                  <div className="flex items-center space-x-2">
-                    <Monitor className="w-4 h-4 text-[#858585]" />
-                    <span className="text-[13px] text-white">Live Preview</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <button onClick={() => setViewportMode('mobile')} className={`p-1.5 rounded ${viewportMode === 'mobile' ? 'bg-[#094771] text-white' : 'text-[#858585]'}`} title="Mobile"><Smartphone className="w-4 h-4" /></button>
-                    <button onClick={() => setViewportMode('tablet')} className={`p-1.5 rounded ${viewportMode === 'tablet' ? 'bg-[#094771] text-white' : 'text-[#858585]'}`} title="Tablet"><Tablet className="w-4 h-4" /></button>
-                    <button onClick={() => setViewportMode('desktop')} className={`p-1.5 rounded ${viewportMode === 'desktop' ? 'bg-[#094771] text-white' : 'text-[#858585]'}`} title="Desktop"><Monitor className="w-4 h-4" /></button>
-                    <button onClick={() => setConsoleLogs([])} className="p-1.5 rounded text-[#858585] hover:text-white" title="Clear Console"><RotateCcw className="w-4 h-4" /></button>
-                    <button onClick={() => { const html = files.find(f => f.language === 'html')?.content || ''; const css = files.find(f => f.language === 'css')?.content || ''; const js = files.find(f => f.language === 'javascript')?.content || ''; handleRunCode(html, css, js); }} className="p-1.5 rounded text-[#858585] hover:text-white" title="Refresh"><RefreshCw className={`w-4 h-4 ${isCodeRunning ? 'animate-spin' : ''}`} /></button>
-                  </div>
-                </div>
-                <div className="flex-1 bg-white flex items-center justify-center overflow-hidden">
-                  <div className={`h-full bg-white overflow-auto transition-all ${viewportMode === 'mobile' ? 'w-[375px]' : viewportMode === 'tablet' ? 'w-[768px]' : 'w-full'}`}>
-                    {codePreviewHtml ? (
-                      <iframe srcDoc={codePreviewHtml} className="w-full h-full border-0" sandbox="allow-scripts allow-modals" title="Preview" />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-gray-400">
-                        <div className="text-center">
-                          <Play className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                          <p className="text-lg font-semibold mb-2">Preview Ready</p>
-                          <p className="text-sm">Your code will appear here automatically</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+        </ResizablePanelGroup>
+      </div>
 
-                {/* PREVIEW CONSOLE - Shows iframe console.log output */}
-                <div className="h-40 bg-[#1e1e1e] border-t border-[#252526] flex flex-col">
-                  <div className="h-8 bg-[#252526] flex items-center justify-between px-3">
-                    <div className="flex items-center space-x-2">
-                      <Terminal className="w-4 h-4 text-[#858585]" />
-                      <span className="text-xs text-white">Preview Console</span>
-                      <span className="text-[10px] text-[#858585]">(iframe output)</span>
-                    </div>
-                    <button onClick={() => setConsoleLogs([])} className="text-[#858585] hover:text-white" title="Clear Console"><RotateCcw className="w-3 h-3" /></button>
-                  </div>
-                  <div className="flex-1 overflow-auto p-2 text-xs font-mono">
-                    {consoleLogs.length === 0 ? (
-                      <div className="text-[#858585] italic">Console output from your preview will appear here...</div>
-                    ) : (
-                      consoleLogs.map((log, idx) => (
-                        <div key={idx} className="flex space-x-2 py-0.5">
-                          <span className="text-[#858585] w-16">{log.timestamp}</span>
-                          <span className={log.level === 'error' ? 'text-[#f14c4c]' : log.level === 'warn' ? 'text-[#cca700]' : 'text-[#3794ff]'}>[{log.level}]</span>
-                          <span className="text-[#cccccc]">{log.message}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+      {/* 3. Status Bar */}
+      <div className="h-[22px] bg-[#007acc] text-white flex items-center justify-between px-3 text-[11px] select-none z-50">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 hover:bg-[#1f8ad2] px-1 rounded cursor-pointer">
+            <div className="w-3 h-3 rounded-full border border-white flex items-center justify-center text-[8px] font-bold pb-0.5">/</div>
+            <span>main*</span>
+          </div>
+          <div className="flex items-center gap-1 hover:bg-[#1f8ad2] px-1 rounded cursor-pointer">
+            <RefreshCw className="w-3 h-3" />
+            <span>0</span>
+            <span className="opacity-50">|</span>
+            <span>0</span>
           </div>
         </div>
+        <div className="flex items-center gap-4">
+          <div className="hover:bg-[#1f8ad2] px-1 rounded cursor-pointer">Ln {cursorPosition.ln}, Col {cursorPosition.col}</div>
+          <div className="hover:bg-[#1f8ad2] px-1 rounded cursor-pointer hidden md:block">Spaces: 2</div>
+          <div className="hover:bg-[#1f8ad2] px-1 rounded cursor-pointer hidden md:block">UTF-8</div>
+          <div className="hover:bg-[#1f8ad2] px-1 rounded cursor-pointer font-medium">{activeFile ? activeFile.language.toUpperCase() : 'TXT'}</div>
+          <div className="hover:bg-[#1f8ad2] px-1 rounded cursor-pointer bg-[#1f8ad2]"><i className="fa-solid fa-bell"></i></div>
+        </div>
       </div>
 
-      <div className="h-6 bg-[#007acc] flex items-center justify-between px-3 text-white text-xs">
-        <div className="flex items-center space-x-4">
-          <button onClick={() => setTheme(t => t === 'dark' ? 'light' : t === 'light' ? 'high-contrast' : 'dark')} className="hover:underline flex items-center">
-            {theme === 'dark' ? <Moon className="w-3 h-3 mr-1" /> : theme === 'light' ? <Sun className="w-3 h-3 mr-1" /> : <Palette className="w-3 h-3 mr-1" />}
-            {theme}
-          </button>
-          <button onClick={() => setShowMinimap(!showMinimap)} className="hover:underline">Minimap: {showMinimap ? 'On' : 'Off'}</button>
-          <button onClick={() => setWordWrap(w => w === 'on' ? 'off' : 'on')} className="hover:underline">Wrap: {wordWrap}</button>
-        </div>
-        <div className="flex items-center space-x-4">
-          <span className="flex items-center"><GitBranch className="w-3 h-3 mr-1" />{gitBranch}</span>
-          <span>{getActiveFile().language.toUpperCase()}</span>
-          <span>UTF-8</span>
-          <span>{files.some(f => f.modified) ? `${gitChanges} Modified` : 'All Saved'}</span>
-        </div>
-      </div>
-    </div>
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent className="bg-[#252526] border-[#454545] text-white">
+          <DialogHeader><DialogTitle>Import Files</DialogTitle></DialogHeader>
+          <div className="flex items-center justify-center h-32 border-2 border-dashed border-[#454545] rounded-lg cursor-pointer hover:bg-[#2a2d2e]" onClick={() => fileInputRef.current?.click()}>
+            <input ref={fileInputRef} type="file" className="hidden" multiple accept=".html,.css,.js" onChange={handleFileUpload} />
+            <div className="text-center">
+              <Files className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+              <span className="text-sm text-gray-400">Click to Import Files</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={newFileDialogOpen} onOpenChange={setNewFileDialogOpen}>
+        <DialogContent className="bg-[#252526] border-[#454545] text-white">
+          <DialogHeader><DialogTitle>New File</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs text-[#858585]">Filename</div>
+              <Input
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                placeholder="e.g., script.js"
+                className="bg-[#3c3c3c] border-transparent text-white focus:ring-1 focus:ring-blue-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateFile()}
+              />
+              <div className="text-[10px] text-[#858585]">Supported types: .js, .html, .css (defaults to .js)</div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setNewFileDialogOpen(false)} className="text-[#cccccc] hover:text-white">Cancel</Button>
+              <Button onClick={handleCreateFile} className="bg-[#007acc] hover:bg-[#0062a3] text-white">Create File</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div >
   );
 }
